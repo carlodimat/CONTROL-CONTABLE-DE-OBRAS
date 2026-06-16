@@ -236,7 +236,7 @@ df_ingresos = df_app[df_app['CLASE'] == 'INGRESO'].copy()
 
 # --- FASE 5: FORMULARIOS INTERACTIVOS (MODALES) ---
 
-@st.experimental_dialog("Añadir Nuevo Registro")
+@st.dialog("Añadir Nuevo Registro")
 def modal_nuevo_registro(clase_registro):
     st.write(f"Complete los datos para el nuevo **{clase_registro}**")
     
