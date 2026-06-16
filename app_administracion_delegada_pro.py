@@ -363,14 +363,25 @@ def modal_nuevo_registro(clase_registro, admin_global_val):
         subcapitulo = "N/A"
         estado = "PAGADO"
         admin_pct = 0.0
+        
+    st.markdown("---")
+    # Cálculos dinámicos en vivo para visualización
+    monto_base_usd_calc = monto / tasa if moneda != "USD" and tasa > 0 else monto
+    honorarios_calc = monto_base_usd_calc * (admin_pct / 100) if clase_registro == "GASTO" else 0.0
+    costo_total_calc = monto_base_usd_calc + honorarios_calc
+    
+    if clase_registro == "GASTO":
+        st.info(f"🧮 **Cálculo de Gasto:** Monto Base `💲{monto_base_usd_calc:,.2f} USD` + Honorarios `💲{honorarios_calc:,.2f} USD` = **COSTO TOTAL `💲{costo_total_calc:,.2f} USD`**")
+    else:
+        st.success(f"🧮 **Cálculo de Ingreso:** Este ingreso equivale a **💲 {monto_base_usd_calc:,.2f} USD** a la tasa actual.")
             
     submit_btn = st.button("Guardar Registro", type="primary", use_container_width=True)
     
     if submit_btn:
-        # Cálculos de Monto y Honorarios
-        monto_base_usd = monto / tasa if moneda != "USD" else monto
-        honorarios = monto_base_usd * (admin_pct / 100)
-        costo_total = monto_base_usd + honorarios
+        # Usar los cálculos dinámicos ya hechos
+        monto_base_usd = monto_base_usd_calc
+        honorarios = honorarios_calc
+        costo_total = costo_total_calc
         
         nuevo_registro = {
             'CLASE': clase_registro,
