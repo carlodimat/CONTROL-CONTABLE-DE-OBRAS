@@ -288,56 +288,82 @@ df_ingresos = df_app[df_app['CLASE'] == 'INGRESO'].copy()
 # --- FASE 5: FORMULARIOS INTERACTIVOS (MODALES) ---
 
 @st.dialog("Añadir Nuevo Registro")
-def modal_nuevo_registro(clase_registro):
+def modal_nuevo_registro(clase_registro, admin_global_val):
     st.write(f"Complete los datos para el nuevo **{clase_registro}**")
     
-    with st.form("form_nuevo_registro"):
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            fecha_input = st.date_input("Fecha", datetime.date.today())
-            prov_input = st.text_input("Proveedor", placeholder="Ej: HOME DEPOT")
-            tipo_input = st.selectbox("Tipo", ["MATERIAL", "MANO DE OBRA", "CONTRATO", "EQUIPO", "OTRO"])
-            desc_input = st.text_input("Descripción")
-            
-        with col_f2:
-            cap_input = st.text_input("Capítulo", placeholder="Ej: CIMENTACION")
-            subcap_input = st.text_input("Subcapítulo", placeholder="Ej: EXCAVACION")
-            moneda_input = st.selectbox("Moneda", ["MXN", "USD"])
-            monto_orig_input = st.number_input("Monto Original", min_value=0.0, step=100.0)
-            
-        if clase_registro == 'GASTO':
-            pct_admin = st.number_input("% Admin Delegada (Calculado)", value=10.0)
-            estado_input = st.selectbox("Estado", ["PAGADO", "PENDIENTE"])
+    # Extraer listas únicas para autocompletado
+    df_actual = st.session_state.df_maestro
+    lista_prov = ["➕ NUEVO PROVEEDOR"] + sorted([p for p in df_actual['PROVEEDOR'].unique() if str(p).strip() != ''])
+    lista_cap = ["➕ NUEVO CAPÍTULO"] + sorted([c for c in df_actual['CAPITULO'].unique() if str(c).strip() != ''])
+    lista_sub = ["➕ NUEVO SUB-CAPÍTULO"] + sorted([s for s in df_actual['SUBCAPITULO'].unique() if str(s).strip() != ''])
+    lista_tipo = ["➕ NUEVO TIPO"] + sorted([t for t in df_actual['TIPO'].unique() if str(t).strip() != ''])
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        fecha_input = st.date_input("Fecha")
+        
+        # Lógica selectbox / input para TIPO
+        tipo_sel = st.selectbox("Tipo de Gasto", options=lista_tipo)
+        if tipo_sel == "➕ NUEVO TIPO":
+            tipo = st.text_input("✍️ Escriba el Nuevo Tipo")
         else:
-            pct_admin = 0.0
-            estado_input = "PAGADO"
+            tipo = tipo_sel
             
-        submit_btn = st.form_submit_button("Guardar Registro", type="primary")
+        descripcion = st.text_area("Descripción")
+        moneda = st.selectbox("Moneda", ["USD", "VES", "EUR"])
+        monto = st.number_input("Monto Original", min_value=0.0, step=10.0)
+    with col2:
+        # Lógica selectbox / input para PROVEEDOR
+        prov_sel = st.selectbox("Proveedor", options=lista_prov)
+        if prov_sel == "➕ NUEVO PROVEEDOR":
+            proveedor = st.text_input("✍️ Escriba el Nuevo Proveedor")
+        else:
+            proveedor = prov_sel
+            
+        # Lógica selectbox / input para CAPITULO
+        cap_sel = st.selectbox("Capítulo", options=lista_cap)
+        if cap_sel == "➕ NUEVO CAPÍTULO":
+            capitulo = st.text_input("✍️ Escriba el Nuevo Capítulo")
+        else:
+            capitulo = cap_sel
+            
+        # Lógica selectbox / input para SUBCAPITULO
+        sub_sel = st.selectbox("Sub-Capítulo", options=lista_sub)
+        if sub_sel == "➕ NUEVO SUB-CAPÍTULO":
+            subcapitulo = st.text_input("✍️ Escriba el Nuevo Sub-Capítulo")
+        else:
+            subcapitulo = sub_sel
+            
+        tasa = st.number_input("Tasa de Cambio", value=1.0, min_value=0.0, format="%.4f")
+        estado = st.selectbox("Estado", ["PAGADO", "PENDIENTE"])
+        forma_pago = st.selectbox("Forma de Pago", ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"])
+        admin_pct = st.number_input("% Administración Delegada", value=float(admin_global_val), step=0.5)
+            
+        submit_btn = st.button("Guardar Registro", type="primary")
         
         if submit_btn:
             # Cálculos
-            tasa_cambio = 1.0 if moneda_input == "USD" else 18.0 # Asumimos 18 MXN/USD para simplicidad si no se pide
-            monto_base_usd = monto_orig_input / tasa_cambio if moneda_input == "MXN" else monto_orig_input
-            honorarios = monto_base_usd * (pct_admin / 100)
+            monto_base_usd = monto / tasa if moneda != "USD" else monto
+            honorarios = monto_base_usd * (admin_pct / 100)
             costo_total = monto_base_usd + honorarios
             
             nuevo_registro = {
                 'CLASE': clase_registro,
                 'FECHA': pd.to_datetime(fecha_input),
-                'PROVEEDOR': prov_input.upper(),
-                'TIPO': tipo_input.upper(),
-                'CAPITULO': cap_input.upper(),
-                'SUBCAPITULO': subcap_input.upper(),
-                'DESCRIPCION': desc_input.upper(),
-                'MONEDA': moneda_input,
-                'TASA': tasa_cambio,
-                'MONTO ORIG': monto_orig_input,
+                'PROVEEDOR': proveedor.upper(),
+                'TIPO': tipo.upper(),
+                'CAPITULO': capitulo.upper(),
+                'SUBCAPITULO': subcapitulo.upper(),
+                'DESCRIPCION': descripcion.upper(),
+                'MONEDA': moneda,
+                'TASA': tasa,
+                'MONTO ORIG': monto,
                 'MONTO BASE USD': monto_base_usd,
-                'MONTO PAGADO': monto_base_usd if estado_input == 'PAGADO' else 0,
+                'MONTO PAGADO': monto_base_usd if estado == 'PAGADO' else 0,
                 'HONORARIOS': honorarios,
                 'COSTO TOTAL': costo_total,
-                'ESTADO': estado_input,
-                '% ADMIN': pct_admin
+                'ESTADO': estado,
+                '% ADMIN': admin_pct
             }
             
             # Añadir al df maestro
@@ -346,19 +372,25 @@ def modal_nuevo_registro(clase_registro):
             st.success("✅ Registro guardado con éxito.")
             st.rerun()
 
-# Botones de Acción Global (Sidebar)
-st.sidebar.markdown("<br><h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-plus'></i> Acciones Rápidas</h2>", unsafe_allow_html=True)
+# --- FASE 1: BARRA LATERAL (FILTROS Y ACCIONES) ---
+with st.sidebar:
+    st.markdown("<h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-bolt'></i> Acciones Rápidas</h2>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("<h3 style='color:#1e3a8a; font-weight:700;'><i class='fa-solid fa-percent'></i> Tasa Administrativa</h3>", unsafe_allow_html=True)
+    admin_pct = st.number_input("💼 % Admin. Delegada Global", value=15.0, step=0.5)
+    st.markdown("---")
 
-col_btn1, col_btn2 = st.sidebar.columns(2)
-if col_btn1.button("➕ Gasto", use_container_width=True):
-    modal_nuevo_registro("GASTO")
-if col_btn2.button("➕ Ingreso", use_container_width=True):
-    modal_nuevo_registro("INGRESO")
-
-st.sidebar.markdown("<hr>", unsafe_allow_html=True)
-
-# Filtros Globales (Continuación Fase 2...)
-st.sidebar.markdown("<h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-filter'></i> Filtros Globales</h2>", unsafe_allow_html=True)
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("➕ Gasto", use_container_width=True):
+            modal_nuevo_registro("GASTO", admin_pct)
+    with col_btn2:
+        if st.button("➕ Ingreso", use_container_width=True):
+            modal_nuevo_registro("INGRESO", admin_pct)
+            
+    st.markdown("---")
+    st.markdown("<h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-filter'></i> Filtros Globales</h2>", unsafe_allow_html=True)
 
 # Lógica de meses para filtrar
 df_gastos_base['MES_AÑO'] = df_gastos_base['FECHA'].dt.strftime('%m-%Y').fillna('N/A')
@@ -378,8 +410,6 @@ else:
 subcapitulo_sel = st.sidebar.selectbox("🧱 Sub-Capítulo", subcap_options)
 prov_sel = st.sidebar.selectbox("👥 Proveedor", ["Todos"] + sorted(df_gastos_base['PROVEEDOR'].dropna().unique().tolist()))
 estado_sel = st.sidebar.selectbox("💳 Estado del Gasto", ["Todos", "PAGADO", "PENDIENTE"])
-
-admin_pct = st.sidebar.number_input("💼 % Admin. Delegada Global", value=10.0, step=0.5)
 
 # Aplicar Filtros a los Gastos
 df_gastos = df_gastos_base.copy()
