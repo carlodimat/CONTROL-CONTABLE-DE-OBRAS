@@ -291,12 +291,12 @@ df_ingresos = df_app[df_app['CLASE'] == 'INGRESO'].copy()
 def modal_nuevo_registro(clase_registro, admin_global_val):
     st.write(f"Complete los datos para el nuevo **{clase_registro}**")
     
-    # Extraer listas únicas para autocompletado
+    # Extraer listas únicas para autocompletado (asegurando tipo string para evitar TypeError al ordenar)
     df_actual = st.session_state.df_maestro
-    lista_prov = ["➕ NUEVO PROVEEDOR"] + sorted([p for p in df_actual['PROVEEDOR'].unique() if str(p).strip() != ''])
-    lista_cap = ["➕ NUEVO CAPÍTULO"] + sorted([c for c in df_actual['CAPITULO'].unique() if str(c).strip() != ''])
-    lista_sub = ["➕ NUEVO SUB-CAPÍTULO"] + sorted([s for s in df_actual['SUBCAPITULO'].unique() if str(s).strip() != ''])
-    lista_tipo = ["➕ NUEVO TIPO"] + sorted([t for t in df_actual['TIPO'].unique() if str(t).strip() != ''])
+    lista_prov = ["➕ NUEVO PROVEEDOR"] + sorted(list(set([str(p).strip() for p in df_actual['PROVEEDOR'].unique() if str(p).strip() not in ['', 'NAN', 'NaN']])))
+    lista_cap = ["➕ NUEVO CAPÍTULO"] + sorted(list(set([str(c).strip() for c in df_actual['CAPITULO'].unique() if str(c).strip() not in ['', 'NAN', 'NaN']])))
+    lista_sub = ["➕ NUEVO SUB-CAPÍTULO"] + sorted(list(set([str(s).strip() for s in df_actual['SUBCAPITULO'].unique() if str(s).strip() not in ['', 'NAN', 'NaN']])))
+    lista_tipo = ["➕ NUEVO TIPO"] + sorted(list(set([str(t).strip() for t in df_actual['TIPO'].unique() if str(t).strip() not in ['', 'NAN', 'NaN']])))
     
     col1, col2 = st.columns(2)
     with col1:
