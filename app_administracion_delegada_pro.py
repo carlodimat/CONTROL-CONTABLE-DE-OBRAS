@@ -4,6 +4,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import io
 import datetime
+import urllib.request
+import json
 
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(
@@ -147,6 +149,17 @@ if 'usuario_actual' not in st.session_state:
     st.session_state.usuario_actual = None
 
 # Funciones de Soporte
+def obtener_tasa_bcv():
+    """Obtiene la tasa oficial del BCV en tiempo real usando urllib (sin dependencias externas)"""
+    try:
+        url = "https://ve.dolarapi.com/v1/dolares/oficial"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode())
+            return float(data.get('promedio', 1.0))
+    except Exception:
+        return 1.0
+
 def procesar_csv(df):
     """Procesa el CSV cargado, asegura tipos de datos correctos y crea columnas calculadas faltantes"""
     try:
@@ -291,86 +304,98 @@ df_ingresos = df_app[df_app['CLASE'] == 'INGRESO'].copy()
 def modal_nuevo_registro(clase_registro, admin_global_val):
     st.write(f"Complete los datos para el nuevo **{clase_registro}**")
     
-    # Extraer listas únicas para autocompletado (asegurando tipo string para evitar TypeError al ordenar)
     df_actual = st.session_state.df_maestro
-    lista_prov = ["➕ NUEVO PROVEEDOR"] + sorted(list(set([str(p).strip() for p in df_actual['PROVEEDOR'].unique() if str(p).strip() not in ['', 'NAN', 'NaN']])))
-    lista_cap = ["➕ NUEVO CAPÍTULO"] + sorted(list(set([str(c).strip() for c in df_actual['CAPITULO'].unique() if str(c).strip() not in ['', 'NAN', 'NaN']])))
-    lista_sub = ["➕ NUEVO SUB-CAPÍTULO"] + sorted(list(set([str(s).strip() for s in df_actual['SUBCAPITULO'].unique() if str(s).strip() not in ['', 'NAN', 'NaN']])))
-    lista_tipo = ["➕ NUEVO TIPO"] + sorted(list(set([str(t).strip() for t in df_actual['TIPO'].unique() if str(t).strip() not in ['', 'NAN', 'NaN']])))
+    tasa_bcv = obtener_tasa_bcv()
     
     col1, col2 = st.columns(2)
-    with col1:
-        fecha_input = st.date_input("Fecha")
+    
+    # ---------------------------------------------
+    # LOGICA PARA GASTOS
+    # ---------------------------------------------
+    if clase_registro == "GASTO":
+        lista_prov = ["➕ NUEVO PROVEEDOR"] + sorted(list(set([str(p).strip() for p in df_actual['PROVEEDOR'].unique() if str(p).strip() not in ['', 'NAN', 'NaN']])))
+        lista_cap = ["➕ NUEVO CAPÍTULO"] + sorted(list(set([str(c).strip() for c in df_actual['CAPITULO'].unique() if str(c).strip() not in ['', 'NAN', 'NaN']])))
+        lista_sub = ["➕ NUEVO SUB-CAPÍTULO"] + sorted(list(set([str(s).strip() for s in df_actual['SUBCAPITULO'].unique() if str(s).strip() not in ['', 'NAN', 'NaN']])))
+        lista_tipo = ["➕ NUEVO TIPO"] + sorted(list(set([str(t).strip() for t in df_actual['TIPO'].unique() if str(t).strip() not in ['', 'NAN', 'NaN']])))
         
-        # Lógica selectbox / input para TIPO
-        tipo_sel = st.selectbox("Tipo de Gasto", options=lista_tipo)
-        if tipo_sel == "➕ NUEVO TIPO":
-            tipo = st.text_input("✍️ Escriba el Nuevo Tipo")
-        else:
-            tipo = tipo_sel
+        with col1:
+            fecha_input = st.date_input("📅 Fecha")
+            tipo_sel = st.selectbox("🏷️ Tipo de Gasto", options=lista_tipo)
+            tipo = st.text_input("✍️ Escriba el Nuevo Tipo") if tipo_sel == "➕ NUEVO TIPO" else tipo_sel
+            descripcion = st.text_area("📝 Descripción")
+            moneda = st.selectbox("💵 Moneda", ["USD", "VES", "EUR"])
+            monto = st.number_input("💰 Monto Original", min_value=0.0, step=10.0)
             
-        descripcion = st.text_area("Descripción")
-        moneda = st.selectbox("Moneda", ["USD", "VES", "EUR"])
-        monto = st.number_input("Monto Original", min_value=0.0, step=10.0)
-    with col2:
-        # Lógica selectbox / input para PROVEEDOR
-        prov_sel = st.selectbox("Proveedor", options=lista_prov)
-        if prov_sel == "➕ NUEVO PROVEEDOR":
-            proveedor = st.text_input("✍️ Escriba el Nuevo Proveedor")
-        else:
-            proveedor = prov_sel
+        with col2:
+            prov_sel = st.selectbox("🏢 Proveedor", options=lista_prov)
+            proveedor = st.text_input("✍️ Escriba el Nuevo Proveedor") if prov_sel == "➕ NUEVO PROVEEDOR" else prov_sel
+            cap_sel = st.selectbox("🏗️ Capítulo", options=lista_cap)
+            capitulo = st.text_input("✍️ Escriba el Nuevo Capítulo") if cap_sel == "➕ NUEVO CAPÍTULO" else cap_sel
+            sub_sel = st.selectbox("🧱 Sub-Capítulo", options=lista_sub)
+            subcapitulo = st.text_input("✍️ Escriba el Nuevo Sub-Capítulo") if sub_sel == "➕ NUEVO SUB-CAPÍTULO" else sub_sel
             
-        # Lógica selectbox / input para CAPITULO
-        cap_sel = st.selectbox("Capítulo", options=lista_cap)
-        if cap_sel == "➕ NUEVO CAPÍTULO":
-            capitulo = st.text_input("✍️ Escriba el Nuevo Capítulo")
-        else:
-            capitulo = cap_sel
-            
-        # Lógica selectbox / input para SUBCAPITULO
-        sub_sel = st.selectbox("Sub-Capítulo", options=lista_sub)
-        if sub_sel == "➕ NUEVO SUB-CAPÍTULO":
-            subcapitulo = st.text_input("✍️ Escriba el Nuevo Sub-Capítulo")
-        else:
-            subcapitulo = sub_sel
-            
-        tasa = st.number_input("Tasa de Cambio", value=1.0, min_value=0.0, format="%.4f")
-        estado = st.selectbox("Estado", ["PAGADO", "PENDIENTE"])
-        forma_pago = st.selectbox("Forma de Pago", ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"])
-        admin_pct = st.number_input("% Administración Delegada", value=float(admin_global_val), step=0.5)
-            
-        submit_btn = st.button("Guardar Registro", type="primary")
+            tasa = st.number_input("📈 Tasa de Cambio (Ref. BCV)", value=tasa_bcv, min_value=0.0, format="%.4f")
+            estado = st.selectbox("✅ Estado", ["PAGADO", "PENDIENTE"])
+            forma_pago = st.selectbox("💳 Forma de Pago", ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"])
+            admin_pct = st.number_input("💼 % Administración Delegada", value=float(admin_global_val), step=0.5)
+
+    # ---------------------------------------------
+    # LOGICA PARA INGRESOS
+    # ---------------------------------------------
+    else:
+        lista_pagadores = ["➕ NUEVO PAGADOR"] + sorted(list(set([str(p).strip() for p in df_actual['PROVEEDOR'].unique() if str(p).strip() not in ['', 'NAN', 'NaN']])))
         
-        if submit_btn:
-            # Cálculos
-            monto_base_usd = monto / tasa if moneda != "USD" else monto
-            honorarios = monto_base_usd * (admin_pct / 100)
-            costo_total = monto_base_usd + honorarios
+        with col1:
+            fecha_input = st.date_input("📅 Fecha")
+            pagador_sel = st.selectbox("👤 Pagador / Cliente", options=lista_pagadores)
+            proveedor = st.text_input("✍️ Escriba el Nuevo Pagador") if pagador_sel == "➕ NUEVO PAGADOR" else pagador_sel
+            descripcion = st.text_area("📝 Descripción del Ingreso")
             
-            nuevo_registro = {
-                'CLASE': clase_registro,
-                'FECHA': pd.to_datetime(fecha_input),
-                'PROVEEDOR': proveedor.upper(),
-                'TIPO': tipo.upper(),
-                'CAPITULO': capitulo.upper(),
-                'SUBCAPITULO': subcapitulo.upper(),
-                'DESCRIPCION': descripcion.upper(),
-                'MONEDA': moneda,
-                'TASA': tasa,
-                'MONTO ORIG': monto,
-                'MONTO BASE USD': monto_base_usd,
-                'MONTO PAGADO': monto_base_usd if estado == 'PAGADO' else 0,
-                'HONORARIOS': honorarios,
-                'COSTO TOTAL': costo_total,
-                'ESTADO': estado,
-                '% ADMIN': admin_pct
-            }
+        with col2:
+            moneda = st.selectbox("💵 Moneda", ["USD", "VES", "EUR"])
+            monto = st.number_input("💰 Monto del Ingreso", min_value=0.0, step=100.0)
+            tasa = st.number_input("📈 Tasa de Cambio (Ref. BCV)", value=tasa_bcv, min_value=0.0, format="%.4f")
+            forma_pago = st.selectbox("💳 Forma de Pago", ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"])
             
-            # Añadir al df maestro
-            df_nuevo = pd.DataFrame([nuevo_registro])
-            st.session_state.df_maestro = pd.concat([st.session_state.df_maestro, df_nuevo], ignore_index=True)
-            st.success("✅ Registro guardado con éxito.")
-            st.rerun()
+        # Forzar variables obligatorias para el esquema del CSV (sin calcular admin)
+        tipo = "INGRESO"
+        capitulo = "N/A"
+        subcapitulo = "N/A"
+        estado = "PAGADO"
+        admin_pct = 0.0
+            
+    submit_btn = st.button("Guardar Registro", type="primary", use_container_width=True)
+    
+    if submit_btn:
+        # Cálculos de Monto y Honorarios
+        monto_base_usd = monto / tasa if moneda != "USD" else monto
+        honorarios = monto_base_usd * (admin_pct / 100)
+        costo_total = monto_base_usd + honorarios
+        
+        nuevo_registro = {
+            'CLASE': clase_registro,
+            'FECHA': pd.to_datetime(fecha_input),
+            'PROVEEDOR': proveedor.upper(),
+            'TIPO': tipo.upper(),
+            'CAPITULO': capitulo.upper(),
+            'SUBCAPITULO': subcapitulo.upper(),
+            'DESCRIPCION': descripcion.upper(),
+            'MONEDA': moneda,
+            'TASA': tasa,
+            'MONTO ORIG': monto,
+            'MONTO BASE USD': monto_base_usd,
+            'MONTO PAGADO': monto_base_usd if estado == 'PAGADO' else 0,
+            'HONORARIOS': honorarios,
+            'COSTO TOTAL': costo_total,
+            'ESTADO': estado,
+            '% ADMIN': admin_pct
+        }
+        
+        # Añadir al df maestro de forma segura
+        df_nuevo = pd.DataFrame([nuevo_registro])
+        st.session_state.df_maestro = pd.concat([df_actual, df_nuevo], ignore_index=True)
+        st.success("✅ Registro guardado con éxito.")
+        st.rerun()
 
 # --- FASE 1: BARRA LATERAL (FILTROS Y ACCIONES) ---
 with st.sidebar:
