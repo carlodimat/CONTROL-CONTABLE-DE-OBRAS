@@ -215,17 +215,18 @@ if st.session_state.df_maestro is None:
         archivo_cargado = st.file_uploader("📂 Arrastra tu archivo CSV aquí", type=['csv'])
         
         if archivo_cargado is not None:
-            df = pd.read_csv(archivo_cargado)
-            df_procesado = procesar_csv(df)
-            
+            df_procesado = procesar_csv(pd.read_csv(archivo_cargado))
             if df_procesado is not None:
                 st.session_state.df_maestro = df_procesado
-                
-                # Intentar auto-detectar Obra y Empresa si existen columnas
+                # Intentar leer los nombres desde el CSV si existen las columnas
                 if 'OBRA' in df_procesado.columns:
-                    st.session_state.obra_nombre = df_procesado['OBRA'].dropna().iloc[0]
+                    st.session_state.obra_nombre = str(df_procesado['OBRA'].dropna().iloc[0]).upper()
+                else:
+                    # Autodetectar desde el nombre del archivo si la columna no existe (ej. RANCHO 120626.csv -> RANCHO 120626)
+                    st.session_state.obra_nombre = archivo_cargado.name.upper().replace('.CSV', '').replace('.TXT', '')
+                    
                 if 'EMPRESA' in df_procesado.columns:
-                    st.session_state.empresa_nombre = df_procesado['EMPRESA'].dropna().iloc[0]
+                    st.session_state.empresa_nombre = str(df_procesado['EMPRESA'].dropna().iloc[0]).upper()
                 
                 st.success("✅ Base de datos cargada correctamente.")
                 st.rerun()
@@ -261,6 +262,16 @@ st.markdown(f"""
         </div>
     </div>
 """, unsafe_allow_html=True)
+
+# Configuraciones de Proyecto (Sidebar Superior)
+st.sidebar.markdown("<h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-gear'></i> Configuración</h2>", unsafe_allow_html=True)
+nueva_empresa = st.sidebar.text_input("🏢 Empresa", value=st.session_state.empresa_nombre)
+nueva_obra = st.sidebar.text_input("🏗️ Proyecto", value=st.session_state.obra_nombre)
+if nueva_empresa != st.session_state.empresa_nombre or nueva_obra != st.session_state.obra_nombre:
+    st.session_state.empresa_nombre = nueva_empresa
+    st.session_state.obra_nombre = nueva_obra
+    st.rerun()
+st.sidebar.markdown("<hr>", unsafe_allow_html=True)
 
 # --- FASE 2: MOTOR DE FILTRADO Y KPIS PRINCIPALES ---
 
@@ -385,24 +396,20 @@ if prov_sel != "Todos":
 if estado_sel != "Todos":
     df_gastos = df_gastos[df_gastos['ESTADO'] == estado_sel]
 
-# Actualizar el % Admin en el vuelo para cálculos si se cambió en el filtro (Opcional, en la HTML se usaba de la data original o se sobrescribía, aquí respetaremos la original pero permitiremos ver el global simulado)
+# Recálculo Dinámico de Administración Delegada
+df_gastos['HONORARIOS'] = df_gastos['MONTO BASE USD'] * (admin_pct / 100.0)
+df_gastos['COSTO TOTAL'] = df_gastos['MONTO BASE USD'] + df_gastos['HONORARIOS']
+
+# Actualizar KPIs
 total_ingresos = df_ingresos['MONTO BASE USD'].sum()
 total_gastos_netos = df_gastos['MONTO BASE USD'].sum()
-
-# En la lógica original, los honorarios de los filtros se recalculan o se suman. Sumaremos los del dataframe filtrado.
 total_honorarios = df_gastos['HONORARIOS'].sum()
-
-# Sin embargo, si el usuario quiere que el %Admin del filtro sobreescriba, calculamos un simulado:
-simulated_honorarios = total_gastos_netos * (admin_pct / 100)
-# Usaremos el original del CSV, pero mostraremos ambos o confiaremos en el CSV por integridad de pagos.
-# Usaremos el que trajo el CSV (total_honorarios) para evitar descuadres de tesorería.
-
-costo_total_obra = total_gastos_netos + total_honorarios
+costo_total_obra = df_gastos['COSTO TOTAL'].sum()
 saldo_caja = total_ingresos - costo_total_obra
 
 # Deuda (Gastos pendientes)
 df_deudas = df_gastos[df_gastos['ESTADO'] == 'PENDIENTE']
-total_deuda = df_deudas['MONTO BASE USD'].sum() + df_deudas['HONORARIOS'].sum()
+total_deuda = df_deudas['COSTO TOTAL'].sum()
 
 # Renderizado de KPIs
 col1, col2, col3, col4, col5 = st.columns(5)
