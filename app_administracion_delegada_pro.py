@@ -264,6 +264,12 @@ st.markdown(f"""
 
 # --- FASE 2: MOTOR DE FILTRADO Y KPIS PRINCIPALES ---
 
+# Failsafe: Si la sesión conservó datos viejos sin las columnas, crearlas al vuelo.
+cols_calculadas = ['HONORARIOS', 'COSTO TOTAL', '% ADMIN']
+for col in cols_calculadas:
+    if col not in df_app.columns:
+        df_app[col] = 0.0
+
 # Limpiar DataFrames base
 df_gastos_base = df_app[df_app['CLASE'] == 'GASTO'].copy()
 df_ingresos = df_app[df_app['CLASE'] == 'INGRESO'].copy()
