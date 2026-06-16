@@ -143,16 +143,24 @@ if 'empresa_nombre' not in st.session_state:
     st.session_state.empresa_nombre = "EMPRESA C.A."
 if 'obra_nombre' not in st.session_state:
     st.session_state.obra_nombre = "NOMBRE DE LA OBRA"
+if 'usuario_actual' not in st.session_state:
+    st.session_state.usuario_actual = None
 
 # Funciones de Soporte
 def procesar_csv(df):
-    """Procesa el CSV cargado, asegura tipos de datos correctos"""
+    """Procesa el CSV cargado, asegura tipos de datos correctos y crea columnas calculadas faltantes"""
     try:
         # Asegurar columnas numéricas
         cols_numericas = ['MONTO ORIG', 'MONTO BASE USD', 'MONTO PAGADO', 'HONORARIOS', 'COSTO TOTAL', '% ADMIN', 'TASA']
         for col in cols_numericas:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            if col not in df.columns:
+                df[col] = 0.0 # Crear columna si no existe
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        # Recalcular Honorarios y Costo Total si estaban en 0 o vacíos pero hay % Admin (Lógica original del HTML)
+        mask_admin = df['% ADMIN'] > 0
+        df.loc[mask_admin, 'HONORARIOS'] = df.loc[mask_admin, 'MONTO BASE USD'] * (df.loc[mask_admin, '% ADMIN'] / 100.0)
+        df['COSTO TOTAL'] = df['MONTO BASE USD'] + df['HONORARIOS']
         
         # Parsear fechas
         if 'FECHA' in df.columns:
@@ -161,21 +169,44 @@ def procesar_csv(df):
         # Limpiar strings
         cols_str = ['CLASE', 'PROVEEDOR', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'DESCRIPCION', 'MONEDA', 'FORMA PAGO', 'ESTADO']
         for col in cols_str:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.strip().str.upper()
-                df.loc[df[col] == 'NAN', col] = ''
+            if col not in df.columns:
+                df[col] = ''
+            df[col] = df[col].astype(str).str.strip().str.upper()
+            df.loc[df[col] == 'NAN', col] = ''
                 
         return df
     except Exception as e:
         st.error(f"Error procesando los datos: {e}")
         return None
 
-# 4. PANTALLA DE CARGA (Si no hay datos)
-if st.session_state.df_maestro is None:
+# PANTALLA DE LOGIN Y AUDITORÍA
+if st.session_state.usuario_actual is None:
     st.markdown("""
         <div style='text-align: center; margin-top: 100px;'>
             <h1 style='color: #1e3a8a; font-weight: 900; font-size: 3rem;'>Control de Obra</h1>
-            <p style='color: #64748b; font-size: 1.2rem; margin-bottom: 40px;'>Carga tu archivo CSV maestro para iniciar el panel interactivo.</p>
+            <p style='color: #64748b; font-size: 1.2rem; margin-bottom: 20px;'>Acceso al Sistema de Administración Delegada</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col_l1, col_l2, col_l3 = st.columns([1, 1.5, 1])
+    with col_l2:
+        st.markdown("<div style='background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+        usuario_input = st.text_input("👤 Nombre del Auditor / Usuario", placeholder="Ej: Arq. Carlos Dimatteo")
+        if st.button("Ingresar al Sistema", use_container_width=True, type="primary"):
+            if usuario_input.strip() != "":
+                st.session_state.usuario_actual = usuario_input.strip().upper()
+                st.rerun()
+            else:
+                st.error("Por favor, ingrese su nombre para propósitos de auditoría.")
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+# 4. PANTALLA DE CARGA (Si no hay datos)
+if st.session_state.df_maestro is None:
+    st.markdown(f"""
+        <div style='text-align: center; margin-top: 50px;'>
+            <h2 style='color: #1e3a8a; font-weight: 800;'>Bienvenido, {st.session_state.usuario_actual}</h2>
+            <p style='color: #64748b; font-size: 1.1rem; margin-bottom: 40px;'>Carga tu archivo CSV maestro para iniciar el panel interactivo.</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -221,6 +252,9 @@ st.markdown(f"""
             <p class="premium-subtitle"><i class="fa-solid fa-building"></i> Proyecto: <b>{st.session_state.obra_nombre}</b></p>
         </div>
         <div style="text-align: right;">
+            <span style="background: rgba(255,255,255,0.2); padding: 8px 15px; border-radius: 20px; font-size: 0.9rem; font-weight: 600; display: block; margin-bottom: 5px;">
+                👤 Auditor: {st.session_state.usuario_actual}
+            </span>
             <span style="background: rgba(255,255,255,0.2); padding: 8px 15px; border-radius: 20px; font-size: 0.9rem; font-weight: 600;">
                 {len(df_app)} Registros en Total
             </span>
