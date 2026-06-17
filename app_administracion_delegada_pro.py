@@ -21,7 +21,7 @@ st.markdown("""
     /* Importar fuente Inter */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap');
 
-    html, body, [class*="st-"] {
+    html, body, input, select, textarea, button {
         font-family: 'Inter', sans-serif;
         color: #1f2937; /* Gris muy oscuro */
     }
