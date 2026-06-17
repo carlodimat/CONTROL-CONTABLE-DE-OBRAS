@@ -135,21 +135,23 @@ st.markdown("""
         transform: scale(1.02);
     }
 
-    /* CONTRASTE Y VISIBILIDAD DE MENÚS Y POPOVERS (Tres puntitos de las columnas) */
-    [role="menu"], [role="menuitem"], [data-testid*="Menu"], [data-testid*="popover"], [data-testid="stDataFrameColumnMenu"] {
+    /* CONTRASTE Y VISIBILIDAD DE MENÚS Y POPOVERS (Tres puntitos de las columnas y selectores) */
+    [role="menu"], [role="menuitem"], [role="option"], [data-testid*="Menu"], [data-testid*="popover"], [data-testid="stDataFrameColumnMenu"], .glide-grid-portal, [class*="glide-grid"], [class*="portal"], [class*="popover"], [class*="Popup"], [class*="Menu"] {
         background-color: #ffffff !important;
-        color: #1e293b !important;
+        color: #0f172a !important;
     }
-    [role="menuitem"] *, [data-testid="stDataFrameColumnMenu"] * {
-        color: #1e293b !important;
+    [role="menuitem"] *, [role="option"] *, [data-testid="stDataFrameColumnMenu"] *, .glide-grid-portal *, [class*="glide-grid"] *, [class*="stDataFrameColumnMenu"] * {
+        color: #0f172a !important;
     }
-    [role="menuitem"]:hover, [role="menuitem"]:hover * {
+    [role="menuitem"]:hover, [role="menuitem"]:hover *, [role="option"]:hover, [role="option"]:hover *, [class*="menu-item"]:hover, [class*="MenuItem"]:hover {
         background-color: #f1f5f9 !important;
         color: #0f172a !important;
     }
 
     </style>
 """, unsafe_allow_html=True)
+
+import os
 
 # 3. GESTIÓN DE ESTADO (Inicialización)
 if 'df_maestro' not in st.session_state:
@@ -160,6 +162,57 @@ if 'obra_nombre' not in st.session_state:
     st.session_state.obra_nombre = "NOMBRE DE LA OBRA"
 if 'usuario_actual' not in st.session_state:
     st.session_state.usuario_actual = None
+if 'reset_counter_gastos' not in st.session_state:
+    st.session_state.reset_counter_gastos = 0
+if 'reset_counter_ingresos' not in st.session_state:
+    st.session_state.reset_counter_ingresos = 0
+
+# Rutas de Caché Local
+CACHE_DIR = os.path.dirname(os.path.abspath(__file__))
+CACHE_META_PATH = os.path.join(CACHE_DIR, ".session_metadata.json")
+CACHE_DB_PATH = os.path.join(CACHE_DIR, ".session_database.csv")
+
+def guardar_cache_local():
+    try:
+        meta = {
+            "usuario_actual": st.session_state.get("usuario_actual"),
+            "empresa_nombre": st.session_state.get("empresa_nombre"),
+            "obra_nombre": st.session_state.get("obra_nombre"),
+            "admin_pct_global": st.session_state.get("admin_pct_global", 15.0)
+        }
+        with open(CACHE_META_PATH, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, ensure_ascii=False, indent=4)
+        if st.session_state.df_maestro is not None:
+            st.session_state.df_maestro.to_csv(CACHE_DB_PATH, index=False)
+    except Exception:
+        pass
+
+def cargar_cache_local():
+    try:
+        if os.path.exists(CACHE_META_PATH) and os.path.exists(CACHE_DB_PATH):
+            with open(CACHE_META_PATH, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            st.session_state.usuario_actual = meta.get("usuario_actual")
+            st.session_state.empresa_nombre = meta.get("empresa_nombre")
+            st.session_state.obra_nombre = meta.get("obra_nombre")
+            if "admin_pct_global" in meta:
+                st.session_state.admin_pct_global = meta.get("admin_pct_global")
+            
+            df = pd.read_csv(CACHE_DB_PATH)
+            st.session_state.df_maestro = procesar_csv(df)
+            return True
+    except Exception:
+        pass
+    return False
+
+def borrar_cache_local():
+    try:
+        if os.path.exists(CACHE_META_PATH):
+            os.remove(CACHE_META_PATH)
+        if os.path.exists(CACHE_DB_PATH):
+            os.remove(CACHE_DB_PATH)
+    except Exception:
+        pass
 
 # Funciones de Soporte
 def obtener_tasa_bcv():
@@ -276,6 +329,7 @@ def guardar_cambios_filtrados(df_original_filtrado, df_editado_filtrado, clase_d
     df_maestro_procesado = procesar_csv(df_maestro)
     if df_maestro_procesado is not None:
         st.session_state.df_maestro = df_maestro_procesado
+        guardar_cache_local()
 
 def agrupar_gastos_divididos(df):
     if df.empty:
@@ -360,6 +414,10 @@ def agrupar_gastos_divididos(df):
         df_grouped = df_grouped.sort_values('FECHA', ascending=False)
     return df_grouped
 
+# Cargar caché local al inicio si existe y no hay sesión activa
+if st.session_state.usuario_actual is None:
+    cargar_cache_local()
+
 # PANTALLA DE LOGIN Y AUDITORÍA
 if st.session_state.usuario_actual is None:
     st.markdown("""
@@ -376,6 +434,7 @@ if st.session_state.usuario_actual is None:
         if st.button("Ingresar al Sistema", use_container_width=True, type="primary"):
             if usuario_input.strip() != "":
                 st.session_state.usuario_actual = usuario_input.strip().upper()
+                guardar_cache_local()
                 st.rerun()
             else:
                 st.error("Por favor, ingrese su nombre para propósitos de auditoría.")
@@ -410,6 +469,7 @@ if st.session_state.df_maestro is None:
                     st.session_state.empresa_nombre = str(df_procesado['EMPRESA'].dropna().iloc[0]).upper()
                 
                 st.success("✅ Base de datos cargada correctamente.")
+                guardar_cache_local()
                 st.rerun()
                 
         st.divider()
@@ -418,6 +478,7 @@ if st.session_state.df_maestro is None:
             # Crear estructura vacía
             columnas_base = ["CLASE","FECHA","PROVEEDOR","TIPO","CAPITULO","SUBCAPITULO","DESCRIPCION","MONEDA","TASA","MONTO ORIG","MONTO BASE USD","MONTO PAGADO","HONORARIOS","COSTO TOTAL","FORMA PAGO","LINK FACTURA","LINK COMPROBANTE","ESTADO", "% ADMIN"]
             st.session_state.df_maestro = pd.DataFrame(columns=columnas_base)
+            guardar_cache_local()
             st.rerun()
 
     st.stop() # Detener ejecución si no hay datos
@@ -451,7 +512,18 @@ nueva_obra = st.sidebar.text_input("🏗️ Proyecto", value=st.session_state.ob
 if nueva_empresa != st.session_state.empresa_nombre or nueva_obra != st.session_state.obra_nombre:
     st.session_state.empresa_nombre = nueva_empresa
     st.session_state.obra_nombre = nueva_obra
+    guardar_cache_local()
     st.rerun()
+
+# Botón para cerrar sesión y cargar otro archivo
+if st.sidebar.button("🔄 Cambiar de Proyecto / Cerrar Sesión", use_container_width=True):
+    borrar_cache_local()
+    st.session_state.df_maestro = None
+    st.session_state.usuario_actual = None
+    st.session_state.empresa_nombre = "EMPRESA C.A."
+    st.session_state.obra_nombre = "NOMBRE DE LA OBRA"
+    st.rerun()
+
 st.sidebar.markdown("<hr>", unsafe_allow_html=True)
 
 # --- FASE 2: MOTOR DE FILTRADO Y KPIS PRINCIPALES ---
@@ -574,6 +646,7 @@ def modal_nuevo_registro(clase_registro, admin_global_val):
         df_nuevo = pd.DataFrame([nuevo_registro])
         st.session_state.df_maestro = pd.concat([df_actual, df_nuevo], ignore_index=True)
         st.success("✅ Registro guardado con éxito.")
+        guardar_cache_local()
         st.rerun()
 
 # --- FASE 1: BARRA LATERAL (FILTROS Y ACCIONES) ---
@@ -736,7 +809,7 @@ with tab_egresos:
                 "ESTADO": st.column_config.SelectboxColumn("✅ Estado", options=estados_gastos, required=True),
                 "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_gastos, required=True),
             },
-            key="editor_gastos"
+            key=f"editor_gastos_{st.session_state.reset_counter_gastos}"
         )
         
         col_save_g = st.columns([1, 1])
@@ -744,6 +817,10 @@ with tab_egresos:
             if st.button("💾 Guardar Cambios de Egresos", type="primary", use_container_width=True):
                 guardar_cambios_filtrados(df_gastos_sort[cols_mostrar_gastos], df_gastos_editado, clase_default="GASTO")
                 st.success("✅ Egresos actualizados con éxito.")
+                st.rerun()
+        with col_save_g[1]:
+            if st.button("👁️ Mostrar Columnas Ocultas / Restablecer Vista", use_container_width=True):
+                st.session_state.reset_counter_gastos += 1
                 st.rerun()
 
 with tab_ingresos:
@@ -778,7 +855,7 @@ with tab_ingresos:
             "MONTO BASE USD": st.column_config.NumberColumn("💵 Monto USD", format="$%.2f", disabled=True),
             "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_ingresos, required=True),
         },
-        key="editor_ingresos"
+        key=f"editor_ingresos_{st.session_state.reset_counter_ingresos}"
     )
     
     col_save_i = st.columns([1, 1])
@@ -786,6 +863,10 @@ with tab_ingresos:
         if st.button("💾 Guardar Cambios de Ingresos", type="primary", use_container_width=True):
             guardar_cambios_filtrados(df_ingresos_sort[cols_mostrar_ing], df_ingresos_editado, clase_default="INGRESO")
             st.success("✅ Ingresos actualizados con éxito.")
+            st.rerun()
+    with col_save_i[1]:
+        if st.button("👁️ Mostrar Columnas Ocultas / Restablecer Vista", use_container_width=True):
+            st.session_state.reset_counter_ingresos += 1
             st.rerun()
 
 with tab_deudas:
@@ -914,6 +995,7 @@ with tab_editor:
     if st.button("💾 Guardar Cambios del Editor", type="primary", use_container_width=True):
         st.session_state.df_maestro = df_editado
         st.success("✅ Base de datos actualizada con tus modificaciones. Ahora ve a descargar tu CSV Maestro.")
+        guardar_cache_local()
         st.rerun()
 
 # --- FASE 6: EXPORTADORES Y GUARDADO ---
