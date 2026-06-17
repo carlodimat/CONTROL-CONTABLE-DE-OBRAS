@@ -163,34 +163,89 @@ def obtener_tasa_bcv():
 def procesar_csv(df):
     """Procesa el CSV cargado, asegura tipos de datos correctos y crea columnas calculadas faltantes"""
     try:
+        # Asegurar todas las columnas necesarias en el CSV maestro
+        columnas_base = ["CLASE","FECHA","PROVEEDOR","TIPO","CAPITULO","SUBCAPITULO","DESCRIPCION","MONEDA","TASA","MONTO ORIG","MONTO BASE USD","MONTO PAGADO","HONORARIOS","COSTO TOTAL","FORMA PAGO","LINK FACTURA","LINK COMPROBANTE","ESTADO", "% ADMIN"]
+        for col in columnas_base:
+            if col not in df.columns:
+                df[col] = 0.0 if col in ['MONTO ORIG', 'MONTO BASE USD', 'MONTO PAGADO', 'HONORARIOS', 'COSTO TOTAL', '% ADMIN', 'TASA'] else ''
+
+        # Limpiar strings primero
+        cols_str = ['CLASE', 'PROVEEDOR', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'DESCRIPCION', 'MONEDA', 'FORMA PAGO', 'ESTADO']
+        for col in cols_str:
+            df[col] = df[col].astype(str).str.strip().str.upper()
+            df.loc[df[col].isin(['NAN', 'NONE', 'NAT', '<NA>']), col] = ''
+
         # Asegurar columnas numéricas
         cols_numericas = ['MONTO ORIG', 'MONTO BASE USD', 'MONTO PAGADO', 'HONORARIOS', 'COSTO TOTAL', '% ADMIN', 'TASA']
         for col in cols_numericas:
-            if col not in df.columns:
-                df[col] = 0.0 # Crear columna si no existe
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        # Recalcular Honorarios y Costo Total si estaban en 0 o vacíos pero hay % Admin (Lógica original del HTML)
-        mask_admin = df['% ADMIN'] > 0
-        df.loc[mask_admin, 'HONORARIOS'] = df.loc[mask_admin, 'MONTO BASE USD'] * (df.loc[mask_admin, '% ADMIN'] / 100.0)
-        df['COSTO TOTAL'] = df['MONTO BASE USD'] + df['HONORARIOS']
-        
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+
         # Parsear fechas
         if 'FECHA' in df.columns:
             df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce')
-        
-        # Limpiar strings
-        cols_str = ['CLASE', 'PROVEEDOR', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'DESCRIPCION', 'MONEDA', 'FORMA PAGO', 'ESTADO']
-        for col in cols_str:
-            if col not in df.columns:
-                df[col] = ''
-            df[col] = df[col].astype(str).str.strip().str.upper()
-            df.loc[df[col] == 'NAN', col] = ''
-                
+
+        # Recalcular columnas derivadas de forma consistente
+        is_usd = (df['MONEDA'] == 'USD') | (df['MONEDA'] == '')
+        has_tasa = df['TASA'] > 0
+
+        # Calcular MONTO BASE USD
+        df.loc[is_usd, 'MONTO BASE USD'] = df.loc[is_usd, 'MONTO ORIG']
+        df.loc[~is_usd & has_tasa, 'MONTO BASE USD'] = df.loc[~is_usd & has_tasa, 'MONTO ORIG'] / df.loc[~is_usd & has_tasa, 'TASA']
+        df.loc[~is_usd & ~has_tasa, 'MONTO BASE USD'] = df.loc[~is_usd & ~has_tasa, 'MONTO ORIG']
+
+        # Calcular HONORARIOS y COSTO TOTAL para GASTOS
+        is_gasto = df['CLASE'] == 'GASTO'
+        df.loc[is_gasto, 'HONORARIOS'] = df.loc[is_gasto, 'MONTO BASE USD'] * (df.loc[is_gasto, '% ADMIN'] / 100.0)
+        df.loc[is_gasto, 'COSTO TOTAL'] = df.loc[is_gasto, 'MONTO BASE USD'] + df.loc[is_gasto, 'HONORARIOS']
+
+        # Para INGRESOS
+        is_ingreso = df['CLASE'] == 'INGRESO'
+        df.loc[is_ingreso, 'HONORARIOS'] = 0.0
+        df.loc[is_ingreso, 'COSTO TOTAL'] = df.loc[is_ingreso, 'MONTO BASE USD']
+
+        # MONTO PAGADO según el estado
+        is_pagado = df['ESTADO'] == 'PAGADO'
+        df.loc[is_pagado, 'MONTO PAGADO'] = df.loc[is_pagado, 'MONTO BASE USD']
+        df.loc[~is_pagado, 'MONTO PAGADO'] = 0.0
+
         return df
     except Exception as e:
         st.error(f"Error procesando los datos: {e}")
         return None
+
+def guardar_cambios_filtrados(df_original_filtrado, df_editado_filtrado, clase_default):
+    df_maestro = st.session_state.df_maestro.copy()
+    
+    # 1. Identificar filas eliminadas (están en original pero no en editado)
+    indices_eliminados = df_original_filtrado.index.difference(df_editado_filtrado.index)
+    if not indices_eliminados.empty:
+        df_maestro = df_maestro.drop(indices_eliminados)
+        
+    # 2. Identificar filas comunes y actualizar valores
+    indices_comunes = df_original_filtrado.index.intersection(df_editado_filtrado.index)
+    if not indices_comunes.empty:
+        for col in df_editado_filtrado.columns:
+            if col in df_maestro.columns:
+                df_maestro.loc[indices_comunes, col] = df_editado_filtrado.loc[indices_comunes, col]
+                
+    # 3. Identificar filas nuevas añadidas
+    indices_nuevos = df_editado_filtrado.index.difference(df_original_filtrado.index)
+    if not indices_nuevos.empty:
+        df_nuevos = df_editado_filtrado.loc[indices_nuevos].copy()
+        df_nuevos['CLASE'] = clase_default
+        # Rellenar columnas faltantes en el editor con valores por defecto
+        for col in df_maestro.columns:
+            if col not in df_nuevos.columns:
+                df_nuevos[col] = 0.0 if col in ['MONTO ORIG', 'MONTO BASE USD', 'MONTO PAGADO', 'HONORARIOS', 'COSTO TOTAL', '% ADMIN', 'TASA'] else ''
+        df_maestro = pd.concat([df_maestro, df_nuevos[df_maestro.columns]], ignore_index=True)
+        
+    # Limpiar y resetear index para mantener la base de datos limpia y ordenada
+    df_maestro = df_maestro.reset_index(drop=True)
+    
+    # Procesar y recalcular todo
+    df_maestro_procesado = procesar_csv(df_maestro)
+    if df_maestro_procesado is not None:
+        st.session_state.df_maestro = df_maestro_procesado
 
 # PANTALLA DE LOGIN Y AUDITORÍA
 if st.session_state.usuario_actual is None:
@@ -500,41 +555,95 @@ def formatear_usd(val):
 
 with tab_egresos:
     st.markdown("### 💸 Detalle de Egresos (Gastos Registrados)")
-    st.info(f"Mostrando **{len(df_gastos)}** registros según los filtros actuales.")
+    st.info(f"Mostrando **{len(df_gastos)}** registros según los filtros actuales. Puedes editar celdas o eliminar filas (seleccionándolas en la casilla izquierda y presionando la tecla Supr/Delete).")
     
-    # Mostrar tabla principal de egresos
-    cols_mostrar_gastos = [c for c in ['FECHA', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'PROVEEDOR', 'DESCRIPCION', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO'] if c in df_gastos.columns]
+    cols_mostrar_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
+    df_gastos_sort = df_gastos.sort_values('FECHA', ascending=False) if not df_gastos.empty else pd.DataFrame(columns=cols_mostrar_gastos)
     
-    if not df_gastos.empty:
-        st.dataframe(
-            df_gastos[cols_mostrar_gastos].sort_values('FECHA', ascending=False).style.format({
-                'MONTO ORIG': "{:,.2f}",
-                '% ADMIN': "{:,.2f}",
-                'HONORARIOS': formatear_usd,
-                'COSTO TOTAL': formatear_usd,
-                'MONTO BASE USD': formatear_usd
-            }),
-            use_container_width=True,
-            height=400
-        )
-    else:
-        st.warning("No hay gastos registrados con los filtros actuales.")
+    # Obtener formas de pago dinámicas para no generar advertencias en el editor
+    fp_gastos = sorted(list(set([str(fp).strip().upper() for fp in st.session_state.df_maestro['FORMA PAGO'].unique() if str(fp).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for fp in ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"]:
+        if fp not in fp_gastos:
+            fp_gastos.append(fp)
+            
+    monedas_gastos = sorted(list(set([str(m).strip().upper() for m in st.session_state.df_maestro['MONEDA'].unique() if str(m).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for m in ["USD", "VES", "EUR"]:
+        if m not in monedas_gastos:
+            monedas_gastos.append(m)
+            
+    estados_gastos = sorted(list(set([str(e).strip().upper() for e in st.session_state.df_maestro['ESTADO'].unique() if str(e).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for e in ["PAGADO", "PENDIENTE"]:
+        if e not in estados_gastos:
+            estados_gastos.append(e)
+
+    df_gastos_editado = st.data_editor(
+        df_gastos_sort[cols_mostrar_gastos],
+        num_rows="dynamic",
+        use_container_width=True,
+        height=400,
+        disabled=['HONORARIOS', 'COSTO TOTAL'],
+        column_config={
+            "FECHA": st.column_config.DateColumn("📅 Fecha"),
+            "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_gastos, required=True),
+            "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
+            "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%.2f", min_value=0.0),
+            "% ADMIN": st.column_config.NumberColumn("💼 % Admin", format="%.2f", min_value=0.0),
+            "HONORARIOS": st.column_config.NumberColumn("💼 Honorarios (USD)", format="$%.2f", disabled=True),
+            "COSTO TOTAL": st.column_config.NumberColumn("🔴 Costo Total (USD)", format="$%.2f", disabled=True),
+            "ESTADO": st.column_config.SelectboxColumn("✅ Estado", options=estados_gastos, required=True),
+            "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_gastos, required=True),
+        },
+        key="editor_gastos"
+    )
+    
+    col_save_g = st.columns([1, 1])
+    with col_save_g[0]:
+        if st.button("💾 Guardar Cambios de Egresos", type="primary", use_container_width=True):
+            guardar_cambios_filtrados(df_gastos_sort[cols_mostrar_gastos], df_gastos_editado, clase_default="GASTO")
+            st.success("✅ Egresos actualizados con éxito.")
+            st.rerun()
 
 with tab_ingresos:
     st.markdown("### 💰 Control de Ingresos")
-    if not df_ingresos.empty:
-        cols_mostrar_ing = [c for c in ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'FORMA PAGO', 'MONTO ORIG', 'TASA', 'MONTO BASE USD'] if c in df_ingresos.columns]
-        st.dataframe(
-            df_ingresos[cols_mostrar_ing].sort_values('FECHA', ascending=False).style.format({
-                'MONTO ORIG': "{:,.2f}",
-                'TASA': "{:,.2f}",
-                'MONTO BASE USD': formatear_usd
-            }),
-            use_container_width=True,
-            height=400
-        )
-    else:
-        st.warning("No hay ingresos registrados en la base de datos.")
+    st.info(f"Mostrando **{len(df_ingresos)}** registros. Puedes editar celdas o eliminar filas (seleccionándolas en la casilla izquierda y presionando la tecla Supr/Delete).")
+    
+    cols_mostrar_ing = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', 'MONTO BASE USD', 'FORMA PAGO', 'LINK COMPROBANTE']
+    df_ingresos_sort = df_ingresos.sort_values('FECHA', ascending=False) if not df_ingresos.empty else pd.DataFrame(columns=cols_mostrar_ing)
+    
+    # Obtener formas de pago dinámicas para no generar advertencias en el editor
+    fp_ingresos = sorted(list(set([str(fp).strip().upper() for fp in st.session_state.df_maestro['FORMA PAGO'].unique() if str(fp).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for fp in ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"]:
+        if fp not in fp_ingresos:
+            fp_ingresos.append(fp)
+            
+    monedas_ingresos = sorted(list(set([str(m).strip().upper() for m in st.session_state.df_maestro['MONEDA'].unique() if str(m).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for m in ["USD", "VES", "EUR"]:
+        if m not in monedas_ingresos:
+            monedas_ingresos.append(m)
+
+    df_ingresos_editado = st.data_editor(
+        df_ingresos_sort[cols_mostrar_ing],
+        num_rows="dynamic",
+        use_container_width=True,
+        height=400,
+        disabled=['MONTO BASE USD'],
+        column_config={
+            "FECHA": st.column_config.DateColumn("📅 Fecha"),
+            "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_ingresos, required=True),
+            "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
+            "MONTO ORIG": st.column_config.NumberColumn("💰 Monto", format="%.2f", min_value=0.0),
+            "MONTO BASE USD": st.column_config.NumberColumn("💵 Monto USD", format="$%.2f", disabled=True),
+            "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_ingresos, required=True),
+        },
+        key="editor_ingresos"
+    )
+    
+    col_save_i = st.columns([1, 1])
+    with col_save_i[0]:
+        if st.button("💾 Guardar Cambios de Ingresos", type="primary", use_container_width=True):
+            guardar_cambios_filtrados(df_ingresos_sort[cols_mostrar_ing], df_ingresos_editado, clase_default="INGRESO")
+            st.success("✅ Ingresos actualizados con éxito.")
+            st.rerun()
 
 with tab_deudas:
     st.markdown("### 🔴 Cuentas por Pagar (Gastos Pendientes)")
