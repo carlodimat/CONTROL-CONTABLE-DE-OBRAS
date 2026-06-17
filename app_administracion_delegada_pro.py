@@ -195,7 +195,12 @@ def procesar_csv(df):
 
         # Calcular HONORARIOS y COSTO TOTAL para GASTOS
         is_gasto = df['CLASE'] == 'GASTO'
-        df.loc[is_gasto, 'HONORARIOS'] = df.loc[is_gasto, 'MONTO BASE USD'] * (df.loc[is_gasto, '% ADMIN'] / 100.0)
+        default_admin = st.session_state.get('admin_pct_global', 15.0)
+        pct_admin_temp = df['% ADMIN'].copy()
+        mask_cero = is_gasto & ((pct_admin_temp == 0) | (pct_admin_temp.isna()))
+        pct_admin_temp.loc[mask_cero] = default_admin
+
+        df.loc[is_gasto, 'HONORARIOS'] = df.loc[is_gasto, 'MONTO BASE USD'] * (pct_admin_temp.loc[is_gasto] / 100.0)
         df.loc[is_gasto, 'COSTO TOTAL'] = df.loc[is_gasto, 'MONTO BASE USD'] + df.loc[is_gasto, 'HONORARIOS']
 
         # Para INGRESOS
@@ -215,6 +220,7 @@ def procesar_csv(df):
 
 def guardar_cambios_filtrados(df_original_filtrado, df_editado_filtrado, clase_default):
     df_maestro = st.session_state.df_maestro.copy()
+    global_admin = st.session_state.get('admin_pct_global', 15.0)
     
     # 1. Identificar filas eliminadas (están en original pero no en editado)
     indices_eliminados = df_original_filtrado.index.difference(df_editado_filtrado.index)
@@ -226,13 +232,24 @@ def guardar_cambios_filtrados(df_original_filtrado, df_editado_filtrado, clase_d
     if not indices_comunes.empty:
         for col in df_editado_filtrado.columns:
             if col in df_maestro.columns:
-                df_maestro.loc[indices_comunes, col] = df_editado_filtrado.loc[indices_comunes, col]
+                if col == '% ADMIN':
+                    # Si el valor editado es igual al global default, guardarlo como 0.0 para mantener la vinculación global
+                    for idx in indices_comunes:
+                        val = df_editado_filtrado.loc[idx, col]
+                        df_maestro.loc[idx, col] = 0.0 if val == global_admin else val
+                else:
+                    df_maestro.loc[indices_comunes, col] = df_editado_filtrado.loc[indices_comunes, col]
                 
     # 3. Identificar filas nuevas añadidas
     indices_nuevos = df_editado_filtrado.index.difference(df_original_filtrado.index)
     if not indices_nuevos.empty:
         df_nuevos = df_editado_filtrado.loc[indices_nuevos].copy()
         df_nuevos['CLASE'] = clase_default
+        
+        # Si tiene la columna % ADMIN, limpiar los valores que coincidan con el global a 0.0
+        if '% ADMIN' in df_nuevos.columns:
+            df_nuevos.loc[df_nuevos['% ADMIN'] == global_admin, '% ADMIN'] = 0.0
+            
         # Rellenar columnas faltantes en el editor con valores por defecto
         for col in df_maestro.columns:
             if col not in df_nuevos.columns:
@@ -469,7 +486,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("<h3 style='color:#1e3a8a; font-weight:700;'><i class='fa-solid fa-percent'></i> Tasa Administrativa</h3>", unsafe_allow_html=True)
-    admin_pct = st.number_input("💼 % Admin. Delegada Global", value=15.0, step=0.5)
+    admin_pct = st.number_input("💼 % Admin. Delegada Global", value=15.0, step=0.5, key="admin_pct_global")
     st.markdown("---")
 
     col_btn1, col_btn2 = st.columns(2)
@@ -518,7 +535,11 @@ if estado_sel != "Todos":
     df_gastos = df_gastos[df_gastos['ESTADO'] == estado_sel]
 
 # Recálculo Dinámico de Administración Delegada
-df_gastos['HONORARIOS'] = df_gastos['MONTO BASE USD'] * (admin_pct / 100.0)
+pct_admin_efectivo = df_gastos['% ADMIN'].copy()
+mask_cero_gastos = (pct_admin_efectivo == 0) | (pct_admin_efectivo.isna())
+pct_admin_efectivo.loc[mask_cero_gastos] = admin_pct
+
+df_gastos['HONORARIOS'] = df_gastos['MONTO BASE USD'] * (pct_admin_efectivo / 100.0)
 df_gastos['COSTO TOTAL'] = df_gastos['MONTO BASE USD'] + df_gastos['HONORARIOS']
 
 # Actualizar KPIs
@@ -559,6 +580,9 @@ with tab_egresos:
     
     cols_mostrar_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
     df_gastos_sort = df_gastos.sort_values('FECHA', ascending=False) if not df_gastos.empty else pd.DataFrame(columns=cols_mostrar_gastos)
+    if not df_gastos_sort.empty:
+        mask_cero_g = (df_gastos_sort['% ADMIN'] == 0) | (df_gastos_sort['% ADMIN'].isna())
+        df_gastos_sort.loc[mask_cero_g, '% ADMIN'] = admin_pct
     
     # Obtener formas de pago dinámicas para no generar advertencias en el editor
     fp_gastos = sorted(list(set([str(fp).strip().upper() for fp in st.session_state.df_maestro['FORMA PAGO'].unique() if str(fp).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
