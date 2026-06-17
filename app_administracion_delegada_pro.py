@@ -135,6 +135,19 @@ st.markdown("""
         transform: scale(1.02);
     }
 
+    /* CONTRASTE Y VISIBILIDAD DE MENÚS Y POPOVERS (Tres puntitos de las columnas) */
+    [role="menu"], [role="menuitem"], [data-testid*="Menu"], [data-testid*="popover"], [data-testid="stDataFrameColumnMenu"] {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+    }
+    [role="menuitem"] *, [data-testid="stDataFrameColumnMenu"] * {
+        color: #1e293b !important;
+    }
+    [role="menuitem"]:hover, [role="menuitem"]:hover * {
+        background-color: #f1f5f9 !important;
+        color: #0f172a !important;
+    }
+
     </style>
 """, unsafe_allow_html=True)
 
@@ -263,6 +276,89 @@ def guardar_cambios_filtrados(df_original_filtrado, df_editado_filtrado, clase_d
     df_maestro_procesado = procesar_csv(df_maestro)
     if df_maestro_procesado is not None:
         st.session_state.df_maestro = df_maestro_procesado
+
+def agrupar_gastos_divididos(df):
+    if df.empty:
+        return df
+        
+    # Crear una copia para no alterar el original
+    df_copy = df.copy()
+    
+    # Limpiar descripción (eliminar sufijo de porcentaje como (15%) o (10%))
+    import re
+    def limpiar_desc(desc):
+        if not isinstance(desc, str):
+            return desc
+        return re.sub(r' \(\d+(\.\d+)?\%\)$', '', desc).strip().upper()
+        
+    df_copy['DESCRIPCION_LIMPIA'] = df_copy['DESCRIPCION'].apply(limpiar_desc)
+    
+    # Asegurar tipo fecha
+    if 'FECHA' in df_copy.columns:
+        df_copy['FECHA_STR'] = df_copy['FECHA'].dt.strftime('%Y-%m-%d').fillna('')
+    else:
+        df_copy['FECHA_STR'] = ''
+        
+    # Agrupar por fecha, proveedor, descripción limpia, tipo, moneda, tasa, estado y forma pago
+    group_cols = ['FECHA_STR', 'PROVEEDOR', 'DESCRIPCION_LIMPIA', 'TIPO', 'MONEDA', 'TASA', 'ESTADO', 'FORMA PAGO']
+    
+    # Rellenar nulos temporalmente para evitar que groupby descarte filas
+    for col in group_cols:
+        if col in df_copy.columns:
+            df_copy[col] = df_copy[col].fillna('')
+            
+    grouped_rows = []
+    for keys, group in df_copy.groupby(group_cols, dropna=False):
+        fecha_str, proveedor, desc_limpia, tipo, moneda, tasa, estado, forma_pago = keys
+        
+        total_monto_orig = group['MONTO ORIG'].sum()
+        total_monto_base = group['MONTO BASE USD'].sum()
+        total_honorarios = group['HONORARIOS'].sum()
+        total_costo_total = group['COSTO TOTAL'].sum()
+        
+        # Determinar capítulo y subcapítulo
+        caps = sorted(list(set([str(c).strip().upper() for c in group['CAPITULO'].unique() if str(c).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+        subcaps = sorted(list(set([str(s).strip().upper() for s in group['SUBCAPITULO'].unique() if str(s).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE', '-']])))
+        
+        if len(caps) > 1:
+            cap_val = "VARIOS (DIVIDIDO)"
+        elif len(caps) == 1:
+            if len(group) > 1:
+                cap_val = f"{caps[0]} (DIVIDIDO)"
+            else:
+                cap_val = caps[0]
+        else:
+            cap_val = ""
+            
+        if len(subcaps) > 1:
+            subcap_val = "VARIOS (DIVIDIDO)"
+        elif len(subcaps) == 1:
+            subcap_val = subcaps[0]
+        else:
+            subcap_val = ""
+            
+        row = {
+            'FECHA': pd.to_datetime(fecha_str) if fecha_str else pd.NaT,
+            'PROVEEDOR': proveedor,
+            'DESCRIPCION': desc_limpia,
+            'TIPO': tipo,
+            'MONEDA': moneda,
+            'TASA': tasa,
+            'MONTO ORIG': total_monto_orig,
+            'MONTO BASE USD': total_monto_base,
+            'HONORARIOS': total_honorarios,
+            'COSTO TOTAL': total_costo_total,
+            'ESTADO': estado,
+            'FORMA PAGO': forma_pago,
+            'CAPITULO': cap_val,
+            'SUBCAPITULO': subcap_val
+        }
+        grouped_rows.append(row)
+        
+    df_grouped = pd.DataFrame(grouped_rows)
+    if not df_grouped.empty:
+        df_grouped = df_grouped.sort_values('FECHA', ascending=False)
+    return df_grouped
 
 # PANTALLA DE LOGIN Y AUDITORÍA
 if st.session_state.usuario_actual is None:
@@ -576,56 +672,79 @@ def formatear_usd(val):
 
 with tab_egresos:
     st.markdown("### 💸 Detalle de Egresos (Gastos Registrados)")
-    st.info(f"Mostrando **{len(df_gastos)}** registros según los filtros actuales. Puedes editar celdas o eliminar filas (seleccionándolas en la casilla izquierda y presionando la tecla Supr/Delete).")
     
+    # Agregar Toggle para agrupar/consolidar gastos divididos
+    col_eg_opt1, col_eg_opt2 = st.columns([2, 1])
+    with col_eg_opt1:
+        st.info(f"Mostrando **{len(df_gastos)}** registros según los filtros actuales.")
+    with col_eg_opt2:
+        agrupar_gastos = st.checkbox("🔍 Agrupar Gastos Divididos", value=False, help="Consolida los gastos parciales/divididos (que tienen la misma fecha, proveedor, descripción y tipo) en una sola fila para ver el gasto total completo. Oculta la subdivisión por capítulos.")
+
     cols_mostrar_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
     df_gastos_sort = df_gastos.sort_values('FECHA', ascending=False) if not df_gastos.empty else pd.DataFrame(columns=cols_mostrar_gastos)
     if not df_gastos_sort.empty:
         mask_cero_g = (df_gastos_sort['% ADMIN'] == 0) | (df_gastos_sort['% ADMIN'].isna())
         df_gastos_sort.loc[mask_cero_g, '% ADMIN'] = admin_pct
-    
-    # Obtener formas de pago dinámicas para no generar advertencias en el editor
-    fp_gastos = sorted(list(set([str(fp).strip().upper() for fp in st.session_state.df_maestro['FORMA PAGO'].unique() if str(fp).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
-    for fp in ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"]:
-        if fp not in fp_gastos:
-            fp_gastos.append(fp)
-            
-    monedas_gastos = sorted(list(set([str(m).strip().upper() for m in st.session_state.df_maestro['MONEDA'].unique() if str(m).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
-    for m in ["USD", "VES", "EUR"]:
-        if m not in monedas_gastos:
-            monedas_gastos.append(m)
-            
-    estados_gastos = sorted(list(set([str(e).strip().upper() for e in st.session_state.df_maestro['ESTADO'].unique() if str(e).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
-    for e in ["PAGADO", "PENDIENTE"]:
-        if e not in estados_gastos:
-            estados_gastos.append(e)
 
-    df_gastos_editado = st.data_editor(
-        df_gastos_sort[cols_mostrar_gastos],
-        num_rows="dynamic",
-        use_container_width=True,
-        height=400,
-        disabled=['HONORARIOS', 'COSTO TOTAL'],
-        column_config={
-            "FECHA": st.column_config.DateColumn("📅 Fecha"),
-            "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_gastos, required=True),
-            "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
-            "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%.2f", min_value=0.0),
-            "% ADMIN": st.column_config.NumberColumn("💼 % Admin", format="%.2f", min_value=0.0),
-            "HONORARIOS": st.column_config.NumberColumn("💼 Honorarios (USD)", format="$%.2f", disabled=True),
-            "COSTO TOTAL": st.column_config.NumberColumn("🔴 Costo Total (USD)", format="$%.2f", disabled=True),
-            "ESTADO": st.column_config.SelectboxColumn("✅ Estado", options=estados_gastos, required=True),
-            "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_gastos, required=True),
-        },
-        key="editor_gastos"
-    )
-    
-    col_save_g = st.columns([1, 1])
-    with col_save_g[0]:
-        if st.button("💾 Guardar Cambios de Egresos", type="primary", use_container_width=True):
-            guardar_cambios_filtrados(df_gastos_sort[cols_mostrar_gastos], df_gastos_editado, clase_default="GASTO")
-            st.success("✅ Egresos actualizados con éxito.")
-            st.rerun()
+    if agrupar_gastos:
+        st.warning("⚠️ **VISTA DE REVISIÓN AGRUPADA:** En este modo los gastos divididos se muestran consolidados en su total original. Para editar o borrar celdas, desmarca la casilla 'Agrupar Gastos Divididos'.")
+        df_gastos_grouped = agrupar_gastos_divididos(df_gastos_sort)
+        cols_mostrar_grouped = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', 'MONTO BASE USD', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO']
+        
+        st.dataframe(
+            df_gastos_grouped[cols_mostrar_grouped].style.format({
+                'MONTO ORIG': "{:,.2f}",
+                'TASA': "{:,.4f}",
+                'MONTO BASE USD': formatear_usd,
+                'HONORARIOS': formatear_usd,
+                'COSTO TOTAL': formatear_usd
+            }),
+            use_container_width=True,
+            height=400
+        )
+    else:
+        # Obtener formas de pago dinámicas para no generar advertencias en el editor
+        fp_gastos = sorted(list(set([str(fp).strip().upper() for fp in st.session_state.df_maestro['FORMA PAGO'].unique() if str(fp).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+        for fp in ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"]:
+            if fp not in fp_gastos:
+                fp_gastos.append(fp)
+                
+        monedas_gastos = sorted(list(set([str(m).strip().upper() for m in st.session_state.df_maestro['MONEDA'].unique() if str(m).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+        for m in ["USD", "VES", "EUR"]:
+            if m not in monedas_gastos:
+                monedas_gastos.append(m)
+                
+        estados_gastos = sorted(list(set([str(e).strip().upper() for e in st.session_state.df_maestro['ESTADO'].unique() if str(e).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+        for e in ["PAGADO", "PENDIENTE"]:
+            if e not in estados_gastos:
+                estados_gastos.append(e)
+
+        df_gastos_editado = st.data_editor(
+            df_gastos_sort[cols_mostrar_gastos],
+            num_rows="dynamic",
+            use_container_width=True,
+            height=400,
+            disabled=['HONORARIOS', 'COSTO TOTAL'],
+            column_config={
+                "FECHA": st.column_config.DateColumn("📅 Fecha"),
+                "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_gastos, required=True),
+                "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
+                "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%.2f", min_value=0.0),
+                "% ADMIN": st.column_config.NumberColumn("💼 % Admin", format="%.2f", min_value=0.0),
+                "HONORARIOS": st.column_config.NumberColumn("💼 Honorarios (USD)", format="$%.2f", disabled=True),
+                "COSTO TOTAL": st.column_config.NumberColumn("🔴 Costo Total (USD)", format="$%.2f", disabled=True),
+                "ESTADO": st.column_config.SelectboxColumn("✅ Estado", options=estados_gastos, required=True),
+                "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_gastos, required=True),
+            },
+            key="editor_gastos"
+        )
+        
+        col_save_g = st.columns([1, 1])
+        with col_save_g[0]:
+            if st.button("💾 Guardar Cambios de Egresos", type="primary", use_container_width=True):
+                guardar_cambios_filtrados(df_gastos_sort[cols_mostrar_gastos], df_gastos_editado, clase_default="GASTO")
+                st.success("✅ Egresos actualizados con éxito.")
+                st.rerun()
 
 with tab_ingresos:
     st.markdown("### 💰 Control de Ingresos")
