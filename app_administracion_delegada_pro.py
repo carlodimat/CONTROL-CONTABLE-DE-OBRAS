@@ -490,8 +490,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # --- FASE 3 Y 4: TABS DE VISUALIZACIÓN ---
 
-tab_graficos, tab_egresos, tab_ingresos, tab_deudas, tab_contratos, tab_presupuestos = st.tabs([
-    "📊 GRÁFICOS", "💸 EGRESOS", "💰 INGRESOS", "🔴 DEUDAS", "📄 CONTRATOS", "🎯 PRESUPUESTOS"
+tab_graficos, tab_egresos, tab_ingresos, tab_deudas, tab_contratos, tab_presupuestos, tab_editor = st.tabs([
+    "📊 GRÁFICOS", "💸 EGRESOS", "💰 INGRESOS", "🔴 DEUDAS", "📄 CONTRATOS", "🎯 PRESUPUESTOS", "🛠️ EDITOR MAESTRO"
 ])
 
 # Funciones de utilidad para formatos de pandas
@@ -642,6 +642,27 @@ with tab_graficos:
 
     else:
         st.warning("No hay datos suficientes para generar gráficos.")
+
+with tab_editor:
+    st.markdown("### 🛠️ Editor Maestro de Base de Datos")
+    st.warning("⚠️ **ZONA DE EDICIÓN:** Aquí puedes comportarte como si estuvieras en Excel. Haz doble clic en cualquier celda para **modificar su valor**, o selecciona una fila entera (haciendo clic en la casilla vacía de la izquierda) y presiona la tecla **'Suprimir' o 'Delete' en tu teclado para borrarla**.")
+    
+    # Mostrar el DataFrame interactivo completo
+    df_para_editar = st.session_state.df_maestro.copy()
+    
+    # st.data_editor permite editar celdas, borrar filas y añadir filas dinámicamente
+    df_editado = st.data_editor(
+        df_para_editar,
+        num_rows="dynamic",
+        use_container_width=True,
+        height=500,
+        key="editor_maestro"
+    )
+    
+    if st.button("💾 Guardar Cambios del Editor", type="primary", use_container_width=True):
+        st.session_state.df_maestro = df_editado
+        st.success("✅ Base de datos actualizada con tus modificaciones. Ahora ve a descargar tu CSV Maestro.")
+        st.rerun()
 
 # --- FASE 6: EXPORTADORES Y GUARDADO ---
 st.sidebar.markdown("<br><h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-download'></i> Exportar Datos</h2>", unsafe_allow_html=True)
