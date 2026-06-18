@@ -167,6 +167,15 @@ if 'reset_counter_gastos' not in st.session_state:
 if 'reset_counter_ingresos' not in st.session_state:
     st.session_state.reset_counter_ingresos = 0
 
+# Columnas por defecto para inicialización
+cols_def_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
+cols_def_ingresos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', 'MONTO BASE USD', 'FORMA PAGO', 'LINK COMPROBANTE']
+
+if 'columnas_visibles_gastos' not in st.session_state:
+    st.session_state.columnas_visibles_gastos = cols_def_gastos.copy()
+if 'columnas_visibles_ingresos' not in st.session_state:
+    st.session_state.columnas_visibles_ingresos = cols_def_ingresos.copy()
+
 # Rutas de Caché Local
 CACHE_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_META_PATH = os.path.join(CACHE_DIR, ".session_metadata.json")
@@ -178,7 +187,9 @@ def guardar_cache_local():
             "usuario_actual": st.session_state.get("usuario_actual"),
             "empresa_nombre": st.session_state.get("empresa_nombre"),
             "obra_nombre": st.session_state.get("obra_nombre"),
-            "admin_pct_global": st.session_state.get("admin_pct_global", 15.0)
+            "admin_pct_global": st.session_state.get("admin_pct_global", 15.0),
+            "columnas_visibles_gastos": st.session_state.get("columnas_visibles_gastos"),
+            "columnas_visibles_ingresos": st.session_state.get("columnas_visibles_ingresos")
         }
         with open(CACHE_META_PATH, 'w', encoding='utf-8') as f:
             json.dump(meta, f, ensure_ascii=False, indent=4)
@@ -197,6 +208,10 @@ def cargar_cache_local():
             st.session_state.obra_nombre = meta.get("obra_nombre")
             if "admin_pct_global" in meta:
                 st.session_state.admin_pct_global = meta.get("admin_pct_global")
+            if "columnas_visibles_gastos" in meta:
+                st.session_state.columnas_visibles_gastos = meta.get("columnas_visibles_gastos")
+            if "columnas_visibles_ingresos" in meta:
+                st.session_state.columnas_visibles_ingresos = meta.get("columnas_visibles_ingresos")
             
             df = pd.read_csv(CACHE_DB_PATH)
             st.session_state.df_maestro = procesar_csv(df)
@@ -754,6 +769,27 @@ with tab_egresos:
         agrupar_gastos = st.checkbox("🔍 Agrupar Gastos Divididos", value=False, help="Consolida los gastos parciales/divididos (que tienen la misma fecha, proveedor, descripción y tipo) en una sola fila para ver el gasto total completo. Oculta la subdivisión por capítulos.")
 
     cols_mostrar_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
+    
+    # Limpieza de columnas visibles de gastos por seguridad
+    cols_validas_gastos = [col for col in st.session_state.columnas_visibles_gastos if col in cols_mostrar_gastos]
+    if not cols_validas_gastos:
+        cols_validas_gastos = cols_mostrar_gastos.copy()
+        st.session_state.columnas_visibles_gastos = cols_validas_gastos
+        
+    with st.expander("👁️ Configurar Columnas Visibles (Egresos)"):
+        columnas_gastos_actualizadas = st.multiselect(
+            "Selecciona las columnas que deseas mostrar en la tabla de Egresos:",
+            options=cols_mostrar_gastos,
+            default=cols_validas_gastos
+        )
+        if columnas_gastos_actualizadas != st.session_state.columnas_visibles_gastos:
+            if columnas_gastos_actualizadas:
+                st.session_state.columnas_visibles_gastos = columnas_gastos_actualizadas
+            else:
+                st.session_state.columnas_visibles_gastos = cols_mostrar_gastos.copy()
+            guardar_cache_local()
+            st.rerun()
+
     df_gastos_sort = df_gastos.sort_values('FECHA', ascending=False) if not df_gastos.empty else pd.DataFrame(columns=cols_mostrar_gastos)
     if not df_gastos_sort.empty:
         mask_cero_g = (df_gastos_sort['% ADMIN'] == 0) | (df_gastos_sort['% ADMIN'].isna())
@@ -798,6 +834,7 @@ with tab_egresos:
             use_container_width=True,
             height=400,
             disabled=['HONORARIOS', 'COSTO TOTAL'],
+            column_order=st.session_state.columnas_visibles_gastos,
             column_config={
                 "FECHA": st.column_config.DateColumn("📅 Fecha"),
                 "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_gastos, required=True),
@@ -819,7 +856,7 @@ with tab_egresos:
                 st.success("✅ Egresos actualizados con éxito.")
                 st.rerun()
         with col_save_g[1]:
-            if st.button("👁️ Mostrar Columnas Ocultas / Restablecer Vista", use_container_width=True):
+            if st.button("👁️ Mostrar Columnas Ocultas / Restablecer Vista", use_container_width=True, key="reset_egresos"):
                 st.session_state.reset_counter_gastos += 1
                 st.rerun()
 
@@ -828,6 +865,27 @@ with tab_ingresos:
     st.info(f"Mostrando **{len(df_ingresos)}** registros. Puedes editar celdas o eliminar filas (seleccionándolas en la casilla izquierda y presionando la tecla Supr/Delete).")
     
     cols_mostrar_ing = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', 'MONTO BASE USD', 'FORMA PAGO', 'LINK COMPROBANTE']
+    
+    # Limpieza de columnas visibles de ingresos por seguridad
+    cols_validas_ingresos = [col for col in st.session_state.columnas_visibles_ingresos if col in cols_mostrar_ing]
+    if not cols_validas_ingresos:
+        cols_validas_ingresos = cols_mostrar_ing.copy()
+        st.session_state.columnas_visibles_ingresos = cols_validas_ingresos
+
+    with st.expander("👁️ Configurar Columnas Visibles (Ingresos)"):
+        columnas_ingresos_actualizadas = st.multiselect(
+            "Selecciona las columnas que deseas mostrar en la tabla de Ingresos:",
+            options=cols_mostrar_ing,
+            default=cols_validas_ingresos
+        )
+        if columnas_ingresos_actualizadas != st.session_state.columnas_visibles_ingresos:
+            if columnas_ingresos_actualizadas:
+                st.session_state.columnas_visibles_ingresos = columnas_ingresos_actualizadas
+            else:
+                st.session_state.columnas_visibles_ingresos = cols_mostrar_ing.copy()
+            guardar_cache_local()
+            st.rerun()
+
     df_ingresos_sort = df_ingresos.sort_values('FECHA', ascending=False) if not df_ingresos.empty else pd.DataFrame(columns=cols_mostrar_ing)
     
     # Obtener formas de pago dinámicas para no generar advertencias en el editor
@@ -847,6 +905,7 @@ with tab_ingresos:
         use_container_width=True,
         height=400,
         disabled=['MONTO BASE USD'],
+        column_order=st.session_state.columnas_visibles_ingresos,
         column_config={
             "FECHA": st.column_config.DateColumn("📅 Fecha"),
             "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_ingresos, required=True),
@@ -865,7 +924,7 @@ with tab_ingresos:
             st.success("✅ Ingresos actualizados con éxito.")
             st.rerun()
     with col_save_i[1]:
-        if st.button("👁️ Mostrar Columnas Ocultas / Restablecer Vista", use_container_width=True):
+        if st.button("👁️ Mostrar Columnas Ocultas / Restablecer Vista", use_container_width=True, key="reset_ingresos"):
             st.session_state.reset_counter_ingresos += 1
             st.rerun()
 
