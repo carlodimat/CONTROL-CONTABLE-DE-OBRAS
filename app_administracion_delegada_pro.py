@@ -994,44 +994,151 @@ with tab_presupuestos:
 with tab_graficos:
     st.markdown("### 📊 Panel de Análisis Financiero")
     
+    # 1. Gráfico Comparativo de Ingresos vs Egresos
+    st.subheader("📈 Comparativa de Ingresos vs Egresos (Flujo de Caja)")
+    
+    df_eg_all = df_gastos_base.copy() if not df_gastos_base.empty else pd.DataFrame(columns=['FECHA', 'COSTO TOTAL'])
+    df_in_all = df_ingresos.copy() if not df_ingresos.empty else pd.DataFrame(columns=['FECHA', 'MONTO BASE USD'])
+    
+    if not df_eg_all.empty or not df_in_all.empty:
+        df_eg_all['TIPO_TRANS'] = 'EGRESO'
+        df_eg_all['MONTO_USD'] = df_eg_all['COSTO TOTAL'] if 'COSTO TOTAL' in df_eg_all.columns else 0.0
+        
+        df_in_all['TIPO_TRANS'] = 'INGRESO'
+        df_in_all['MONTO_USD'] = df_in_all['MONTO BASE USD'] if 'MONTO BASE USD' in df_in_all.columns else 0.0
+        
+        df_trans = pd.concat([
+            df_eg_all[['FECHA', 'TIPO_TRANS', 'MONTO_USD']], 
+            df_in_all[['FECHA', 'TIPO_TRANS', 'MONTO_USD']]
+        ], ignore_index=True)
+        
+        df_trans = df_trans.dropna(subset=['FECHA'])
+        
+        if not df_trans.empty:
+            col_ctrl1, col_ctrl2 = st.columns(2)
+            with col_ctrl1:
+                periodo_graf = st.selectbox("📅 Periodicidad del Gráfico", ["Mensual", "Semanal"], key="periodo_graf")
+            with col_ctrl2:
+                acumulado_graf = st.radio("📈 Modo del Gráfico", ["Acumulado (Histórico)", "Por Período (Sin Acumular)"], key="acumulado_graf", horizontal=True)
+                
+            # Calcular el período
+            if periodo_graf == "Mensual":
+                df_trans['PERIODO'] = df_trans['FECHA'].dt.to_period('M')
+            else:
+                df_trans['PERIODO'] = df_trans['FECHA'].dt.to_period('W')
+                
+            # Agrupar
+            grouped = df_trans.groupby(['PERIODO', 'TIPO_TRANS'])['MONTO_USD'].sum().unstack(fill_value=0.0).reset_index()
+            
+            # Asegurar que ambas columnas existan
+            if 'INGRESO' not in grouped.columns:
+                grouped['INGRESO'] = 0.0
+            if 'EGRESO' not in grouped.columns:
+                grouped['EGRESO'] = 0.0
+                
+            # Ordenar por periodo
+            grouped = grouped.sort_values('PERIODO')
+            grouped['PERIODO_STR'] = grouped['PERIODO'].astype(str)
+            
+            is_acumulado = acumulado_graf == "Acumulado (Histórico)"
+            
+            if is_acumulado:
+                grouped['Ingresos Acumulados'] = grouped['INGRESO'].cumsum()
+                grouped['Egresos Acumulados'] = grouped['EGRESO'].cumsum()
+                grouped['Saldo Acumulado'] = grouped['Ingresos Acumulados'] - grouped['Egresos Acumulados']
+                
+                df_plot = grouped.melt(id_vars=['PERIODO_STR'], value_vars=['Ingresos Acumulados', 'Egresos Acumulados', 'Saldo Acumulado'], 
+                                       var_name='Concepto', value_name='Monto (USD)')
+                
+                fig_comp = px.line(df_plot, x='PERIODO_STR', y='Monto (USD)', color='Concepto',
+                                   title=f"Flujo de Caja Acumulado ({periodo_graf})",
+                                   labels={'PERIODO_STR': 'Período', 'Monto (USD)': 'Monto (USD)'},
+                                   color_discrete_map={
+                                       'Ingresos Acumulados': '#10b981', # Verde
+                                       'Egresos Acumulados': '#ef4444', # Rojo
+                                       'Saldo Acumulado': '#3b82f6' # Azul
+                                   },
+                                   markers=True)
+            else:
+                grouped['Ingresos'] = grouped['INGRESO']
+                grouped['Egresos'] = grouped['EGRESO']
+                grouped['Saldo Neto'] = grouped['INGRESO'] - grouped['EGRESO']
+                
+                df_plot = grouped.melt(id_vars=['PERIODO_STR'], value_vars=['Ingresos', 'Egresos', 'Saldo Neto'], 
+                                       var_name='Concepto', value_name='Monto (USD)')
+                
+                fig_comp = px.bar(df_plot, x='PERIODO_STR', y='Monto (USD)', color='Concepto',
+                                  barmode='group',
+                                  title=f"Ingresos vs Egresos por Período ({periodo_graf})",
+                                  labels={'PERIODO_STR': 'Período', 'Monto (USD)': 'Monto (USD)'},
+                                  color_discrete_map={
+                                      'Ingresos': '#10b981',
+                                      'Egresos': '#ef4444',
+                                      'Saldo Neto': '#3b82f6'
+                                  })
+            
+            fig_comp.update_layout(margin=dict(t=40, b=20, l=40, r=20), hovermode="x unified")
+            st.plotly_chart(fig_comp, use_container_width=True)
+        else:
+            st.warning("No hay transacciones con fechas válidas para graficar la comparativa.")
+    else:
+        st.warning("No hay datos de ingresos ni egresos para graficar la comparativa.")
+        
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.subheader("📊 Distribución y Evolución Detallada")
+    
     if not df_gastos.empty:
+        # 1. Gráfico de Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
+        graf_cap = df_gastos.groupby(['CAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
+        fig_cap = px.bar(graf_cap, x='CAPITULO', y='COSTO TOTAL', color='TIPO',
+                         title="Distribución por Capítulo (Composición por Tipo de Gasto)",
+                         labels={'CAPITULO': 'Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
+                         color_discrete_sequence=px.colors.qualitative.Plotly)
+        fig_cap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
+        fig_cap.update_xaxes(categoryorder='total descending')
+        st.plotly_chart(fig_cap, use_container_width=True)
+        
+        # 2. Gráfico de Sub-Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
+        graf_subcap = df_gastos.groupby(['SUBCAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
+        fig_subcap = px.bar(graf_subcap, x='SUBCAPITULO', y='COSTO TOTAL', color='TIPO',
+                            title="Distribución por Sub-Capítulo (Composición por Tipo de Gasto)",
+                            labels={'SUBCAPITULO': 'Sub-Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
+                            color_discrete_sequence=px.colors.qualitative.Safe)
+        fig_subcap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
+        fig_subcap.update_xaxes(categoryorder='total descending')
+        st.plotly_chart(fig_subcap, use_container_width=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # 3. Columnas para los otros gráficos detallados
         col_g1, col_g2 = st.columns(2)
         
         with col_g1:
-            # Gráfico de Distribución por Capítulo (Donut)
-            graf_cap = df_gastos.groupby('CAPITULO')['COSTO TOTAL'].sum().reset_index()
-            fig_cap = px.pie(graf_cap, values='COSTO TOTAL', names='CAPITULO', hole=0.4, 
-                             title="Distribución por Capítulo",
-                             color_discrete_sequence=px.colors.sequential.Teal)
-            fig_cap.update_layout(margin=dict(t=40, b=0, l=0, r=0))
-            st.plotly_chart(fig_cap, use_container_width=True)
-            
             # Gráfico Top Proveedores (Barras Horizontales)
             graf_prov = df_gastos.groupby('PROVEEDOR')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=True).tail(10)
             fig_prov = px.bar(graf_prov, x='COSTO TOTAL', y='PROVEEDOR', orientation='h',
                               title="Top 10 Proveedores (Costo Total)",
                               color='COSTO TOTAL', color_continuous_scale='Blues')
-            fig_prov.update_layout(margin=dict(t=40, b=0, l=0, r=0), coloraxis_showscale=False)
+            fig_prov.update_layout(margin=dict(t=40, b=20, l=40, r=20), coloraxis_showscale=False)
             st.plotly_chart(fig_prov, use_container_width=True)
-
-        with col_g2:
-            # Gráfico de Evolución Mensual
-            graf_mes = df_gastos.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
-            # Ordenar por fecha real si es posible, por ahora confiamos en el string o lo ordenamos básico
-            fig_mes = px.bar(graf_mes, x='MES_AÑO', y='COSTO TOTAL', 
-                             title="Evolución de Gastos por Período",
-                             color_discrete_sequence=['#3b82f6'])
-            fig_mes.update_layout(margin=dict(t=40, b=0, l=0, r=0))
-            st.plotly_chart(fig_mes, use_container_width=True)
             
-            # Gráfico por Tipo de Gasto
+            # Gráfico por Tipo de Gasto (Donut)
             graf_tipo = df_gastos.groupby('TIPO')['COSTO TOTAL'].sum().reset_index()
             fig_tipo = px.pie(graf_tipo, values='COSTO TOTAL', names='TIPO', hole=0.4, 
-                             title="Distribución por Tipo",
+                             title="Distribución Total por Tipo de Gasto",
                              color_discrete_sequence=px.colors.sequential.Plotly3)
             fig_tipo.update_layout(margin=dict(t=40, b=0, l=0, r=0))
             st.plotly_chart(fig_tipo, use_container_width=True)
 
+        with col_g2:
+            # Gráfico de Evolución Mensual
+            graf_mes = df_gastos.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
+            fig_mes = px.bar(graf_mes, x='MES_AÑO', y='COSTO TOTAL', 
+                             title="Evolución de Gastos por Período",
+                             color_discrete_sequence=['#3b82f6'])
+            fig_mes.update_layout(margin=dict(t=40, b=20, l=40, r=20))
+            st.plotly_chart(fig_mes, use_container_width=True)
+            
     else:
         st.warning("No hay datos suficientes para generar gráficos.")
 
