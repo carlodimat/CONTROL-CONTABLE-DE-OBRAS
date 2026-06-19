@@ -166,6 +166,8 @@ if 'reset_counter_gastos' not in st.session_state:
     st.session_state.reset_counter_gastos = 0
 if 'reset_counter_ingresos' not in st.session_state:
     st.session_state.reset_counter_ingresos = 0
+if 'reset_counter_contratos' not in st.session_state:
+    st.session_state.reset_counter_contratos = 0
 
 # Columnas por defecto para inicialización
 cols_def_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
@@ -298,6 +300,55 @@ def procesar_csv(df):
     except Exception as e:
         st.error(f"Error procesando los datos: {e}")
         return None
+
+def aplicar_buscador_universal(df, query):
+    if not query:
+        return df
+    # Filtrar filas que contengan el término en cualquier columna
+    mask = df.astype(str).apply(lambda x: x.str.contains(query, case=False, na=False)).any(axis=1)
+    return df[mask]
+
+def guardar_cambios_maestro(df_original_filtrado, df_editado_filtrado):
+    df_maestro = st.session_state.df_maestro.copy()
+    
+    # 1. Identificar filas eliminadas (están en original pero no en editado)
+    indices_eliminados = df_original_filtrado.index.difference(df_editado_filtrado.index)
+    if not indices_eliminados.empty:
+        df_maestro = df_maestro.drop(indices_eliminados)
+        
+    # 2. Identificar filas comunes y actualizar valores
+    indices_comunes = df_original_filtrado.index.intersection(df_editado_filtrado.index)
+    if not indices_comunes.empty:
+        for col in df_editado_filtrado.columns:
+            if col in df_maestro.columns:
+                df_maestro.loc[indices_comunes, col] = df_editado_filtrado.loc[indices_comunes, col]
+                
+    # 3. Identificar filas nuevas añadidas
+    indices_nuevos = df_editado_filtrado.index.difference(df_original_filtrado.index)
+    if not indices_nuevos.empty:
+        df_nuevos = df_editado_filtrado.loc[indices_nuevos].copy()
+        
+        # En caso de que CLASE venga vacío para nueva fila, por defecto es GASTO
+        if 'CLASE' in df_nuevos.columns:
+            df_nuevos['CLASE'] = df_nuevos['CLASE'].fillna('').astype(str).str.strip().str.upper()
+            df_nuevos.loc[df_nuevos['CLASE'] == '', 'CLASE'] = 'GASTO'
+        else:
+            df_nuevos['CLASE'] = 'GASTO'
+            
+        # Rellenar columnas faltantes en el editor con valores por defecto
+        for col in df_maestro.columns:
+            if col not in df_nuevos.columns:
+                df_nuevos[col] = 0.0 if col in ['MONTO ORIG', 'MONTO BASE USD', 'MONTO PAGADO', 'HONORARIOS', 'COSTO TOTAL', '% ADMIN', 'TASA'] else ''
+        df_maestro = pd.concat([df_maestro, df_nuevos[df_maestro.columns]], ignore_index=True)
+        
+    # Limpiar y resetear index para mantener la base de datos limpia y ordenada
+    df_maestro = df_maestro.reset_index(drop=True)
+    
+    # Recalcular todo
+    df_maestro_procesado = procesar_csv(df_maestro)
+    if df_maestro_procesado is not None:
+        st.session_state.df_maestro = df_maestro_procesado
+        guardar_cache_local()
 
 def guardar_cambios_filtrados(df_original_filtrado, df_editado_filtrado, clase_default):
     df_maestro = st.session_state.df_maestro.copy()
@@ -684,7 +735,13 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-filter'></i> Filtros Globales</h2>", unsafe_allow_html=True)
 
-# Lógica de meses para filtrar
+# Lógica de meses para filtrar e input de buscador
+search_query = st.sidebar.text_input(
+    "🔍 Buscador Universal", 
+    value="", 
+    help="Escribe cualquier dato (proveedor, descripción, capítulo, estado, etc.) para buscar y filtrar en todas las pestañas de edición a la vez."
+).strip()
+
 df_gastos_base['MES_AÑO'] = df_gastos_base['FECHA'].dt.strftime('%m-%Y').fillna('N/A')
 meses_disp = ["Todos"] + list(df_gastos_base[df_gastos_base['MES_AÑO'] != 'N/A']['MES_AÑO'].unique())
 mes_sel = st.sidebar.selectbox("📅 Período (Mes/Año)", meses_disp)
@@ -718,6 +775,12 @@ if prov_sel != "Todos":
 if estado_sel != "Todos":
     df_gastos = df_gastos[df_gastos['ESTADO'] == estado_sel]
 
+# Aplicar buscador universal
+if search_query:
+    df_gastos = aplicar_buscador_universal(df_gastos, search_query)
+    df_ingresos = aplicar_buscador_universal(df_ingresos, search_query)
+
+
 # Recálculo Dinámico de Administración Delegada
 pct_admin_efectivo = df_gastos['% ADMIN'].copy()
 mask_cero_gastos = (pct_admin_efectivo == 0) | (pct_admin_efectivo.isna())
@@ -736,6 +799,23 @@ saldo_caja = total_ingresos - costo_total_obra
 # Deuda (Gastos pendientes)
 df_deudas = df_gastos[df_gastos['ESTADO'] == 'PENDIENTE']
 total_deuda = df_deudas['COSTO TOTAL'].sum()
+
+# Resumen de totales filtrados para la barra lateral (visible en tiempo real)
+if not df_gastos.empty:
+    monto_orig_por_moneda_sb = df_gastos.groupby('MONEDA')['MONTO ORIG'].sum()
+    monto_orig_str_sb = " | ".join([f"{val:,.2f} {mon}" for mon, val in monto_orig_por_moneda_sb.items()])
+else:
+    monto_orig_str_sb = "0.00 USD"
+
+st.sidebar.markdown(f"""
+<div style="background-color: #ffffff; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-top: 15px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+    <p style="margin: 0; font-size: 0.8rem; color: #64748b; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em;">📊 Resumen Filtrado (Gastos)</p>
+    <hr style="margin: 8px 0; border-color: #f1f5f9;">
+    <p style="margin: 3px 0; font-size: 0.9rem; color: #0f172a;"><b>Monto Original:</b> {monto_orig_str_sb}</p>
+    <p style="margin: 3px 0; font-size: 0.9rem; color: #0f172a;"><b>Honorarios:</b> ${total_honorarios:,.2f} USD</p>
+    <p style="margin: 3px 0; font-size: 0.9rem; color: #0f172a;"><b>Costo Total:</b> ${costo_total_obra:,.2f} USD</p>
+</div>
+""", unsafe_allow_html=True)
 
 # Renderizado de KPIs
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -761,6 +841,39 @@ def formatear_usd(val):
 with tab_egresos:
     st.markdown("### 💸 Detalle de Egresos (Gastos Registrados)")
     
+    cols_mostrar_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
+    
+    df_gastos_sort = df_gastos.sort_values('FECHA', ascending=False) if not df_gastos.empty else pd.DataFrame(columns=cols_mostrar_gastos)
+    if not df_gastos_sort.empty:
+        mask_cero_g = (df_gastos_sort['% ADMIN'] == 0) | (df_gastos_sort['% ADMIN'].isna())
+        df_gastos_sort.loc[mask_cero_g, '% ADMIN'] = admin_pct
+        # Recalcular honorarios y costo total sobre df_gastos_sort
+        df_gastos_sort['HONORARIOS'] = df_gastos_sort['MONTO BASE USD'] * (df_gastos_sort['% ADMIN'] / 100.0)
+        df_gastos_sort['COSTO TOTAL'] = df_gastos_sort['MONTO BASE USD'] + df_gastos_sort['HONORARIOS']
+
+    # Métricas de Sumas de Egresos
+    sum_orig_eg = df_gastos_sort['MONTO ORIG'].sum() if not df_gastos_sort.empty else 0.0
+    sum_hon_eg = df_gastos_sort['HONORARIOS'].sum() if not df_gastos_sort.empty else 0.0
+    sum_tot_eg = df_gastos_sort['COSTO TOTAL'].sum() if not df_gastos_sort.empty else 0.0
+
+    # Agrupar Monto Original por moneda para mostrar en el tooltip/help
+    if not df_gastos_sort.empty:
+        monto_orig_por_moneda_eg = df_gastos_sort.groupby('MONEDA')['MONTO ORIG'].sum()
+        monto_orig_str_eg = " | ".join([f"{val:,.2f} {mon}" for mon, val in monto_orig_por_moneda_eg.items()])
+    else:
+        monto_orig_str_eg = "0.00 USD"
+
+    col_m1, col_m2, col_m3 = st.columns(3)
+    col_m1.metric(
+        "💰 SUMA MONTO ORIGINAL", 
+        f"{sum_orig_eg:,.2f}" if df_gastos_sort.empty or df_gastos_sort['MONEDA'].nunique() <= 1 else "Varios (ver ayuda)", 
+        help=f"Detalle por Moneda: {monto_orig_str_eg}\nNota: Si hay monedas mezcladas, la suma directa no es representativa en una sola moneda. Use el Costo Total (USD) como referencia unificada."
+    )
+    col_m2.metric("💼 SUMA HONORARIOS", f"$ {sum_hon_eg:,.2f}")
+    col_m3.metric("🔴 SUMA COSTO TOTAL", f"$ {sum_tot_eg:,.2f}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+
     # Agregar Toggle para agrupar/consolidar gastos divididos
     col_eg_opt1, col_eg_opt2 = st.columns([2, 1])
     with col_eg_opt1:
@@ -768,8 +881,6 @@ with tab_egresos:
     with col_eg_opt2:
         agrupar_gastos = st.checkbox("🔍 Agrupar Gastos Divididos", value=False, help="Consolida los gastos parciales/divididos (que tienen la misma fecha, proveedor, descripción y tipo) en una sola fila para ver el gasto total completo. Oculta la subdivisión por capítulos.")
 
-    cols_mostrar_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
-    
     # Limpieza de columnas visibles de gastos por seguridad
     cols_validas_gastos = [col for col in st.session_state.columnas_visibles_gastos if col in cols_mostrar_gastos]
     if not cols_validas_gastos:
@@ -789,11 +900,6 @@ with tab_egresos:
                 st.session_state.columnas_visibles_gastos = cols_mostrar_gastos.copy()
             guardar_cache_local()
             st.rerun()
-
-    df_gastos_sort = df_gastos.sort_values('FECHA', ascending=False) if not df_gastos.empty else pd.DataFrame(columns=cols_mostrar_gastos)
-    if not df_gastos_sort.empty:
-        mask_cero_g = (df_gastos_sort['% ADMIN'] == 0) | (df_gastos_sort['% ADMIN'].isna())
-        df_gastos_sort.loc[mask_cero_g, '% ADMIN'] = admin_pct
 
     if agrupar_gastos:
         st.warning("⚠️ **VISTA DE REVISIÓN AGRUPADA:** En este modo los gastos divididos se muestran consolidados en su total original. Para editar o borrar celdas, desmarca la casilla 'Agrupar Gastos Divididos'.")
@@ -950,31 +1056,268 @@ with tab_deudas:
     else:
         st.success("🎉 ¡No hay deudas pendientes registradas!")
 
+def guardar_cambios_contratos(df_original_filtrado, df_editado_filtrado):
+    df_maestro = st.session_state.df_maestro.copy()
+    global_admin = st.session_state.get('admin_pct_global', 15.0)
+    
+    # 1. Identificar filas eliminadas (están en original pero no en editado)
+    indices_eliminados = df_original_filtrado.index.difference(df_editado_filtrado.index)
+    if not indices_eliminados.empty:
+        df_maestro = df_maestro.drop(indices_eliminados)
+        
+    # 2. Identificar filas comunes y actualizar valores
+    indices_comunes = df_original_filtrado.index.intersection(df_editado_filtrado.index)
+    if not indices_comunes.empty:
+        for col in df_editado_filtrado.columns:
+            if col in df_maestro.columns:
+                if col == '% ADMIN':
+                    # Si el valor editado es igual al global default, guardarlo como 0.0 para mantener la vinculación global
+                    for idx in indices_comunes:
+                        val = df_editado_filtrado.loc[idx, col]
+                        df_maestro.loc[idx, col] = 0.0 if val == global_admin else val
+                else:
+                    df_maestro.loc[indices_comunes, col] = df_editado_filtrado.loc[indices_comunes, col]
+                
+    # 3. Identificar filas nuevas añadidas
+    indices_nuevos = df_editado_filtrado.index.difference(df_original_filtrado.index)
+    if not indices_nuevos.empty:
+        df_nuevos = df_editado_filtrado.loc[indices_nuevos].copy()
+        df_nuevos['CLASE'] = 'GASTO'
+        
+        # Forzar tipo a CONTRATO si viene vacío
+        if 'TIPO' in df_nuevos.columns:
+            df_nuevos['TIPO'] = df_nuevos['TIPO'].fillna('').astype(str).str.strip().str.upper()
+            df_nuevos.loc[df_nuevos['TIPO'] == '', 'TIPO'] = 'CONTRATO'
+        else:
+            df_nuevos['TIPO'] = 'CONTRATO'
+            
+        if '% ADMIN' in df_nuevos.columns:
+            df_nuevos.loc[df_nuevos['% ADMIN'] == global_admin, '% ADMIN'] = 0.0
+            
+        # Rellenar columnas faltantes en el editor con valores por defecto
+        for col in df_maestro.columns:
+            if col not in df_nuevos.columns:
+                df_nuevos[col] = 0.0 if col in ['MONTO ORIG', 'MONTO BASE USD', 'MONTO PAGADO', 'HONORARIOS', 'COSTO TOTAL', '% ADMIN', 'TASA'] else ''
+        df_maestro = pd.concat([df_maestro, df_nuevos[df_maestro.columns]], ignore_index=True)
+        
+    # Limpiar y resetear index para mantener la base de datos limpia y ordenada
+    df_maestro = df_maestro.reset_index(drop=True)
+    
+    # Recalcular todo
+    df_maestro_procesado = procesar_csv(df_maestro)
+    if df_maestro_procesado is not None:
+        st.session_state.df_maestro = df_maestro_procesado
+        guardar_cache_local()
+
 with tab_contratos:
     st.markdown("### 📄 Control de Contratos (Subcontratistas)")
-    # En la app HTML, los contratos son un tipo o categoría, o están en una tabla separada. 
-    # Como todo viene de un solo CSV, filtraremos por TIPO == 'CONTRATO' o 'CONTRATISTA' si existe, o agruparemos.
-    # Simulamos el control de contratos sumando los gastos agrupados por proveedor si son del tipo contratista.
-    df_contratos = df_gastos_base[df_gastos_base['TIPO'].isin(['CONTRATO', 'CONTRATISTA'])]
     
-    if not df_contratos.empty:
-        # Agrupar por proveedor
-        contratos_grouped = df_contratos.groupby('PROVEEDOR').agg({
+    cols_mostrar_contratos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
+    
+    # Filtrar contratos aplicando filtros globales y buscador universal (omitimos tipo porque siempre es CONTRATO/CONTRATISTA)
+    df_contratos = df_gastos_base[df_gastos_base['TIPO'].isin(['CONTRATO', 'CONTRATISTA'])].copy()
+    if mes_sel != "Todos":
+        df_contratos = df_contratos[df_contratos['MES_AÑO'] == mes_sel]
+    if capitulo_sel != "Todos":
+        df_contratos = df_contratos[df_contratos['CAPITULO'] == capitulo_sel]
+    if subcapitulo_sel != "Todos":
+        df_contratos = df_contratos[df_contratos['SUBCAPITULO'] == subcapitulo_sel]
+    if prov_sel != "Todos":
+        df_contratos = df_contratos[df_contratos['PROVEEDOR'] == prov_sel]
+    if estado_sel != "Todos":
+        df_contratos = df_contratos[df_contratos['ESTADO'] == estado_sel]
+    if search_query:
+        df_contratos = aplicar_buscador_universal(df_contratos, search_query)
+
+    df_contratos_sort = df_contratos.sort_values('FECHA', ascending=False) if not df_contratos.empty else pd.DataFrame(columns=cols_mostrar_contratos)
+    if not df_contratos_sort.empty:
+        mask_cero_c = (df_contratos_sort['% ADMIN'] == 0) | (df_contratos_sort['% ADMIN'].isna())
+        df_contratos_sort.loc[mask_cero_c, '% ADMIN'] = admin_pct
+        # Asegurar recalculo de honorarios y costo total sobre df_contratos_sort
+        df_contratos_sort['HONORARIOS'] = df_contratos_sort['MONTO BASE USD'] * (df_contratos_sort['% ADMIN'] / 100.0)
+        df_contratos_sort['COSTO TOTAL'] = df_contratos_sort['MONTO BASE USD'] + df_contratos_sort['HONORARIOS']
+
+    # Métricas de Sumas de Contratos
+    sum_orig_con = df_contratos_sort['MONTO ORIG'].sum() if not df_contratos_sort.empty else 0.0
+    sum_hon_con = df_contratos_sort['HONORARIOS'].sum() if not df_contratos_sort.empty else 0.0
+    sum_tot_con = df_contratos_sort['COSTO TOTAL'].sum() if not df_contratos_sort.empty else 0.0
+
+    # Agrupar Monto Original por moneda para mostrar en el tooltip/help
+    if not df_contratos_sort.empty:
+        monto_orig_por_moneda_con = df_contratos_sort.groupby('MONEDA')['MONTO ORIG'].sum()
+        monto_orig_str_con = " | ".join([f"{val:,.2f} {mon}" for mon, val in monto_orig_por_moneda_con.items()])
+    else:
+        monto_orig_str_con = "0.00 USD"
+
+    col_mc1, col_mc2, col_mc3 = st.columns(3)
+    col_mc1.metric(
+        "💰 CONTRATOS MONTO ORIG.", 
+        f"{sum_orig_con:,.2f}" if df_contratos_sort.empty or df_contratos_sort['MONEDA'].nunique() <= 1 else "Varios (ver ayuda)", 
+        help=f"Detalle por Moneda: {monto_orig_str_con}\nNota: Si hay monedas mezcladas, la suma directa no es representativa en una sola moneda. Use el Costo Total (USD) como referencia unificada."
+    )
+    col_mc2.metric("💼 CONTRATOS HONORARIOS", f"$ {sum_hon_con:,.2f}")
+    col_mc3.metric("🔴 CONTRATOS COSTO TOTAL", f"$ {sum_tot_con:,.2f}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Obtener formas de pago dinámicas para no generar advertencias en el editor
+    fp_contratos = sorted(list(set([str(fp).strip().upper() for fp in st.session_state.df_maestro['FORMA PAGO'].unique() if str(fp).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for fp in ["TRANSFERENCIA", "EFECTIVO", "ZELLE", "OTRO"]:
+        if fp not in fp_contratos:
+            fp_contratos.append(fp)
+            
+    monedas_contratos = sorted(list(set([str(m).strip().upper() for m in st.session_state.df_maestro['MONEDA'].unique() if str(m).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for m in ["USD", "VES", "EUR"]:
+        if m not in monedas_contratos:
+            monedas_contratos.append(m)
+            
+    estados_contratos = sorted(list(set([str(e).strip().upper() for e in st.session_state.df_maestro['ESTADO'].unique() if str(e).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for e in ["PAGADO", "PENDIENTE"]:
+        if e not in estados_contratos:
+            estados_contratos.append(e)
+
+    tipos_contratos = sorted(list(set([str(t).strip().upper() for t in st.session_state.df_maestro['TIPO'].unique() if str(t).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
+    for t in ["CONTRATO", "CONTRATISTA"]:
+        if t not in tipos_contratos:
+            tipos_contratos.append(t)
+            
+    # 1. Resumen Consolidado por Subcontratista
+    st.markdown("#### 📊 Resumen Consolidado de Subcontratistas")
+    if not df_contratos_sort.empty:
+        # Agrupar por proveedor sobre df_contratos_sort (que ya tiene los totales consistentes)
+        contratos_grouped = df_contratos_sort.groupby('PROVEEDOR').agg({
             'COSTO TOTAL': 'sum',
             'MONTO PAGADO': 'sum'
         }).reset_index()
         contratos_grouped['SALDO CONTRATO'] = contratos_grouped['COSTO TOTAL'] - contratos_grouped['MONTO PAGADO']
+        contratos_grouped['% EJECUCIÓN'] = (contratos_grouped['MONTO PAGADO'] / contratos_grouped['COSTO TOTAL'] * 100.0).fillna(0.0)
         
         st.dataframe(
-            contratos_grouped.style.format({
-                'COSTO TOTAL': formatear_usd,
-                'MONTO PAGADO': formatear_usd,
-                'SALDO CONTRATO': formatear_usd
-            }),
-            use_container_width=True
+            contratos_grouped,
+            use_container_width=True,
+            column_config={
+                "PROVEEDOR": st.column_config.TextColumn("Subcontratista"),
+                "COSTO TOTAL": st.column_config.NumberColumn("Monto Contratado (USD)", format="$%.2f"),
+                "MONTO PAGADO": st.column_config.NumberColumn("Monto Ejecutado/Pagado (USD)", format="$%.2f"),
+                "SALDO CONTRATO": st.column_config.NumberColumn("Saldo Pendiente (USD)", format="$%.2f"),
+                "% EJECUCIÓN": st.column_config.ProgressColumn(
+                    "% Ejecución",
+                    help="Porcentaje del contrato pagado/ejecutado",
+                    format="%.1f%%",
+                    min_value=0.0,
+                    max_value=100.0
+                )
+            },
+            hide_index=True
         )
+        
+        # Gráfico comparativo de subcontratistas (Monto Contratado vs. Ejecutado)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 📊 Gráfico Comparativo de Subcontratistas")
+        
+        df_chart_contratos = contratos_grouped.sort_values('COSTO TOTAL', ascending=True)
+        df_melted = df_chart_contratos.melt(
+            id_vars=['PROVEEDOR'],
+            value_vars=['MONTO PAGADO', 'SALDO CONTRATO'],
+            var_name='Estado',
+            value_name='Monto (USD)'
+        )
+        df_melted['Estado'] = df_melted['Estado'].replace({
+            'MONTO PAGADO': 'Ejecutado (Pagado)',
+            'SALDO CONTRATO': 'Pendiente'
+        })
+        
+        fig_sub = px.bar(
+            df_melted,
+            y='PROVEEDOR',
+            x='Monto (USD)',
+            color='Estado',
+            orientation='h',
+            title="Comparativa de Contratos: Monto Ejecutado vs. Pendiente por Subcontratista",
+            labels={'PROVEEDOR': 'Subcontratista', 'Monto (USD)': 'Monto (USD)', 'Estado': 'Estatus del Contrato'},
+            color_discrete_map={
+                'Ejecutado (Pagado)': '#10b981',  # Verde
+                'Pendiente': '#ef4444'  # Rojo
+            }
+        )
+        fig_sub.update_layout(
+            margin=dict(t=40, b=20, l=40, r=20),
+            barmode='stack',
+            hovermode="y unified"
+        )
+        st.plotly_chart(fig_sub, use_container_width=True)
     else:
         st.info("No se encontraron registros de tipo CONTRATO o CONTRATISTA en la base de datos.")
+        
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
+    # 2. Editor Detallado de Contratos
+    st.markdown("#### ✍️ Detalle y Edición de Contratos")
+    
+    agrupar_contratos = st.checkbox(
+        "🔍 Agrupar Pagos/Gastos Divididos", 
+        value=False, 
+        key="agrupar_contratos_toggle", 
+        help="Consolida los pagos parciales o divididos (que comparten fecha, subcontratista y descripción) en una sola fila para ver el pago total completo, ocultando la subdivisión por capítulos."
+    )
+    
+    df_contratos_sort = df_contratos.sort_values('FECHA', ascending=False) if not df_contratos.empty else pd.DataFrame(columns=cols_mostrar_contratos)
+    if not df_contratos_sort.empty:
+        mask_cero_c = (df_contratos_sort['% ADMIN'] == 0) | (df_contratos_sort['% ADMIN'].isna())
+        df_contratos_sort.loc[mask_cero_c, '% ADMIN'] = admin_pct
+
+    if agrupar_contratos:
+        st.warning("⚠️ **VISTA DE REVISIÓN AGRUPADA:** En este modo los pagos divididos se muestran consolidados en su total original. Para editar o borrar celdas, desmarca la casilla 'Agrupar Pagos/Gastos Divididos'.")
+        df_contratos_grouped = agrupar_gastos_divididos(df_contratos_sort)
+        cols_mostrar_grouped = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', 'MONTO BASE USD', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO']
+        st.dataframe(
+            df_contratos_grouped[cols_mostrar_grouped].style.format({
+                'MONTO ORIG': "{:,.2f}",
+                'TASA': "{:,.4f}",
+                'MONTO BASE USD': formatear_usd,
+                'HONORARIOS': formatear_usd,
+                'COSTO TOTAL': formatear_usd
+            }),
+            use_container_width=True,
+            height=350
+        )
+    else:
+        df_contratos_editado = st.data_editor(
+            df_contratos_sort[cols_mostrar_contratos],
+            num_rows="dynamic",
+            use_container_width=True,
+            height=350,
+            disabled=['HONORARIOS', 'COSTO TOTAL'],
+            column_config={
+                "FECHA": st.column_config.DateColumn("📅 Fecha"),
+                "PROVEEDOR": st.column_config.TextColumn("Subcontratista"),
+                "DESCRIPCION": st.column_config.TextColumn("Descripción"),
+                "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_contratos, required=True),
+                "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
+                "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%.2f", min_value=0.0),
+                "% ADMIN": st.column_config.NumberColumn("💼 % Admin", format="%.2f", min_value=0.0),
+                "HONORARIOS": st.column_config.NumberColumn("💼 Honorarios (USD)", format="$%.2f", disabled=True),
+                "COSTO TOTAL": st.column_config.NumberColumn("🔴 Costo Total (USD)", format="$%.2f", disabled=True),
+                "ESTADO": st.column_config.SelectboxColumn("✅ Estado", options=estados_contratos, required=True),
+                "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_contratos, required=True),
+                "TIPO": st.column_config.SelectboxColumn("🏷️ Tipo", options=tipos_contratos, required=True),
+                "CAPITULO": st.column_config.TextColumn("🏗️ Capítulo"),
+                "SUBCAPITULO": st.column_config.TextColumn("🧱 Subcapítulo"),
+            },
+            key=f"editor_contratos_{st.session_state.reset_counter_contratos}"
+        )
+        
+        col_save_c = st.columns([1, 1])
+        with col_save_c[0]:
+            if st.button("💾 Guardar Cambios de Contratos", type="primary", use_container_width=True):
+                guardar_cambios_contratos(df_contratos_sort[cols_mostrar_contratos], df_contratos_editado)
+                st.success("✅ Contratos actualizados con éxito.")
+                st.rerun()
+        with col_save_c[1]:
+            if st.button("👁️ Restablecer Vista de Contratos", use_container_width=True, key="reset_contratos"):
+                st.session_state.reset_counter_contratos += 1
+                st.rerun()
+
 
 with tab_presupuestos:
     st.markdown("### 🎯 Presupuestos Estimados por Capítulo")
@@ -1012,6 +1355,8 @@ with tab_graficos:
             df_in_all[['FECHA', 'TIPO_TRANS', 'MONTO_USD']]
         ], ignore_index=True)
         
+        df_trans = df_trans.dropna(subset=['FECHA'])
+        df_trans['FECHA'] = pd.to_datetime(df_trans['FECHA'], errors='coerce')
         df_trans = df_trans.dropna(subset=['FECHA'])
         
         if not df_trans.empty:
@@ -1088,27 +1433,87 @@ with tab_graficos:
     st.subheader("📊 Distribución y Evolución Detallada")
     
     if not df_gastos.empty:
-        # 1. Gráfico de Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
-        graf_cap = df_gastos.groupby(['CAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
-        fig_cap = px.bar(graf_cap, x='CAPITULO', y='COSTO TOTAL', color='TIPO',
-                         title="Distribución por Capítulo (Composición por Tipo de Gasto)",
-                         labels={'CAPITULO': 'Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
-                         color_discrete_sequence=px.colors.qualitative.Plotly)
-        fig_cap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
-        fig_cap.update_xaxes(categoryorder='total descending')
-        st.plotly_chart(fig_cap, use_container_width=True)
+        # Selector para alternar o mostrar ambos gráficos
+        vista_grafico = st.radio(
+            "🔍 Visualizar detalle por:", 
+            ["Capítulos", "Sub-Capítulos", "Ambos (Ver los dos)", "Relación Jerárquica (Mapa de Árbol)"], 
+            index=2, 
+            horizontal=True, 
+            key="vista_detalle_grafico"
+        )
         
-        # 2. Gráfico de Sub-Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
-        graf_subcap = df_gastos.groupby(['SUBCAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
-        fig_subcap = px.bar(graf_subcap, x='SUBCAPITULO', y='COSTO TOTAL', color='TIPO',
-                            title="Distribución por Sub-Capítulo (Composición por Tipo de Gasto)",
-                            labels={'SUBCAPITULO': 'Sub-Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
-                            color_discrete_sequence=px.colors.qualitative.Safe)
-        fig_subcap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
-        fig_subcap.update_xaxes(categoryorder='total descending')
-        st.plotly_chart(fig_subcap, use_container_width=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
+        if vista_grafico in ["Capítulos", "Ambos (Ver los dos)"]:
+            # 1. Gráfico de Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
+            graf_cap = df_gastos.groupby(['CAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
+            fig_cap = px.bar(graf_cap, x='CAPITULO', y='COSTO TOTAL', color='TIPO',
+                             title="Distribución por Capítulo (Composición por Tipo de Gasto)",
+                             labels={'CAPITULO': 'Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
+                             color_discrete_sequence=px.colors.qualitative.Plotly)
+            fig_cap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
+            fig_cap.update_xaxes(categoryorder='total descending')
+            st.plotly_chart(fig_cap, use_container_width=True)
+            
+        if vista_grafico in ["Sub-Capítulos", "Ambos (Ver los dos)"]:
+            # 2. Gráfico de Sub-Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
+            graf_subcap = df_gastos.groupby(['SUBCAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
+            fig_subcap = px.bar(graf_subcap, x='SUBCAPITULO', y='COSTO TOTAL', color='TIPO',
+                                title="Distribución por Sub-Capítulo (Composición por Tipo de Gasto)",
+                                labels={'SUBCAPITULO': 'Sub-Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
+                                color_discrete_sequence=px.colors.qualitative.Safe)
+            fig_subcap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
+            fig_subcap.update_xaxes(categoryorder='total descending')
+            st.plotly_chart(fig_subcap, use_container_width=True)
+            
+        if vista_grafico == "Relación Jerárquica (Mapa de Árbol)":
+            # 3. Gráficos de Relación Jerárquica (Treemap y Sunburst)
+            col_hier1, col_hier2 = st.columns(2)
+            with col_hier1:
+                orden_jerarquia = st.selectbox(
+                    "🔍 Dirección de la Jerarquía:", 
+                    ["Capítulo → Sub-Capítulo", "Sub-Capítulo → Capítulo"],
+                    key="orden_jerarquia_seleccionado"
+                )
+            
+            # Definir la ruta según la selección
+            ruta_jerarquia = ['CAPITULO', 'SUBCAPITULO'] if orden_jerarquia == "Capítulo → Sub-Capítulo" else ['SUBCAPITULO', 'CAPITULO']
+            
+            df_hierarchical = df_gastos.copy()
+            df_hierarchical['CAPITULO'] = df_hierarchical['CAPITULO'].astype(str).str.strip().str.upper().replace('', 'SIN CAPÍTULO')
+            df_hierarchical['SUBCAPITULO'] = df_hierarchical['SUBCAPITULO'].astype(str).str.strip().str.upper().replace('', 'SIN SUBCAPÍTULO').replace('-', 'SIN SUBCAPÍTULO')
+            
+            graf_hier = df_hierarchical.groupby(['CAPITULO', 'SUBCAPITULO'])['COSTO TOTAL'].sum().reset_index()
+            graf_hier = graf_hier[graf_hier['COSTO TOTAL'] > 0]
+            
+            if not graf_hier.empty:
+                fig_tree = px.treemap(
+                    graf_hier, 
+                    path=ruta_jerarquia, 
+                    values='COSTO TOTAL',
+                    title=f"Mapa de Árbol: {orden_jerarquia} (Haz clic para ampliar)",
+                    color='COSTO TOTAL',
+                    color_continuous_scale='Mint',
+                    labels={'parent': 'Categoría Padre', 'id': 'Categoría', 'COSTO TOTAL': 'Costo Total (USD)'}
+                )
+                fig_tree.update_layout(margin=dict(t=50, b=20, l=20, r=20))
+                st.plotly_chart(fig_tree, use_container_width=True)
+                
+                st.info("💡 **Consejo de navegación:** En el Mapa de Árbol, puedes hacer **clic** en cualquier bloque superior para ver su desglose interno, y hacer clic en la barra superior para regresar.")
+                
+                fig_sun = px.sunburst(
+                    graf_hier, 
+                    path=ruta_jerarquia, 
+                    values='COSTO TOTAL',
+                    title=f"Estructura concéntrica ({orden_jerarquia})",
+                    color='COSTO TOTAL',
+                    color_continuous_scale='Mint',
+                    labels={'parent': 'Categoría Padre', 'id': 'Categoría', 'COSTO TOTAL': 'Costo Total (USD)'}
+                )
+                fig_sun.update_layout(margin=dict(t=50, b=20, l=20, r=20))
+                
+                with st.expander("🔄 Ver Estructura Circular Alternativa (Sunburst)"):
+                    st.plotly_chart(fig_sun, use_container_width=True)
+            else:
+                st.warning("No hay datos suficientes con costos mayores a cero para graficar la relación jerárquica.")
         
         # 3. Columnas para los otros gráficos detallados
         col_g1, col_g2 = st.columns(2)
@@ -1146,8 +1551,35 @@ with tab_editor:
     st.markdown("### 🛠️ Editor Maestro de Base de Datos")
     st.warning("⚠️ **ZONA DE EDICIÓN:** Aquí puedes comportarte como si estuvieras en Excel. Haz doble clic en cualquier celda para **modificar su valor**, o selecciona una fila entera (haciendo clic en la casilla vacía de la izquierda) y presiona la tecla **'Suprimir' o 'Delete' en tu teclado para borrarla**.")
     
-    # Mostrar el DataFrame interactivo completo
+    # Mostrar el DataFrame interactivo completo (filtrado si hay buscador universal)
     df_para_editar = st.session_state.df_maestro.copy()
+    if search_query:
+        df_para_editar = aplicar_buscador_universal(df_para_editar, search_query)
+        st.info(f"🔍 Mostrando {len(df_para_editar)} registros coincidentes con '{search_query}'.")
+
+    # Métricas de Sumas de Editor Maestro (solo de la clase GASTO para mantener coherencia con honorarios y costo total)
+    df_ed_gastos = df_para_editar[df_para_editar['CLASE'] == 'GASTO']
+    sum_orig_ed_g = df_ed_gastos['MONTO ORIG'].sum() if not df_ed_gastos.empty else 0.0
+    sum_hon_ed_g = df_ed_gastos['HONORARIOS'].sum() if not df_ed_gastos.empty else 0.0
+    sum_tot_ed_g = df_ed_gastos['COSTO TOTAL'].sum() if not df_ed_gastos.empty else 0.0
+
+    # Agrupar Monto Original de Gastos por moneda para el tooltip
+    if not df_ed_gastos.empty:
+        monto_orig_por_moneda_ed = df_ed_gastos.groupby('MONEDA')['MONTO ORIG'].sum()
+        monto_orig_str_ed = " | ".join([f"{val:,.2f} {mon}" for mon, val in monto_orig_por_moneda_ed.items()])
+    else:
+        monto_orig_str_ed = "0.00 USD"
+
+    col_ed1, col_ed2, col_ed3 = st.columns(3)
+    col_ed1.metric(
+        "💰 SUMA MONTO ORIG. (GASTOS)", 
+        f"{sum_orig_ed_g:,.2f}" if df_ed_gastos.empty or df_ed_gastos['MONEDA'].nunique() <= 1 else "Varios (ver ayuda)", 
+        help=f"Detalle por Moneda: {monto_orig_str_ed}\nNota: Si hay monedas mezcladas, la suma directa no es representativa en una sola moneda. Use el Costo Total (USD) como referencia unificada."
+    )
+    col_ed2.metric("💼 SUMA HONORARIOS (GASTOS)", f"$ {sum_hon_ed_g:,.2f}")
+    col_ed3.metric("🔴 SUMA COSTO TOTAL (GASTOS)", f"$ {sum_tot_ed_g:,.2f}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
     
     # st.data_editor permite editar celdas, borrar filas y añadir filas dinámicamente
     df_editado = st.data_editor(
@@ -1159,9 +1591,8 @@ with tab_editor:
     )
     
     if st.button("💾 Guardar Cambios del Editor", type="primary", use_container_width=True):
-        st.session_state.df_maestro = df_editado
+        guardar_cambios_maestro(df_para_editar, df_editado)
         st.success("✅ Base de datos actualizada con tus modificaciones. Ahora ve a descargar tu CSV Maestro.")
-        guardar_cache_local()
         st.rerun()
 
 # --- FASE 6: EXPORTADORES Y GUARDADO ---
