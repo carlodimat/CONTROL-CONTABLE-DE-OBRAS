@@ -67,7 +67,7 @@ def generar_grafico_tipo_gasto(df_gastos):
     if df_grouped.empty:
         return None
     fig, ax = plt.subplots(figsize=(10.0, 5.0))
-    ax.pie(df_grouped['COSTO TOTAL'], labels=df_grouped['TIPO'], autopct='%1.1f%%', 
+    ax.pie(df_grouped['COSTO TOTAL'], labels=df_grouped['TIPO'], autopct='%1.2f%%', 
            colors=plt.cm.tab20.colors, startangle=90, textprops={'fontsize': 8.5})
     ax.axis('equal')
     ax.set_title("Egresos por Tipo de Gasto", fontsize=11, fontweight='bold', pad=10)
@@ -933,7 +933,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
                     Paragraph(f"${c_tot:,.2f}", style_td_num),
                     Paragraph(f"${c_pag:,.2f}", style_td_num),
                     Paragraph(f"${c_sal:,.2f}", style_td_num),
-                    Paragraph(f"{pct_ej:.1f}%", style_td_num)
+                    Paragraph(f"{pct_ej:,.2f}%", style_td_num)
                 ])
                 
         # Agregar fila de TOTAL
@@ -943,7 +943,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
             Paragraph(f"<b>${sum_tot_con:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_pag_con:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_sal_con:,.2f}</b>", style_td_num_bold),
-            Paragraph(f"<b>{avg_pct_con:.1f}%</b>", style_td_num_bold)
+            Paragraph(f"<b>{avg_pct_con:,.2f}%</b>", style_td_num_bold)
         ])
                 
         t_contratos = Table(con_rows, colWidths=[140, 95, 95, 95, 79], repeatRows=1)
@@ -993,7 +993,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
                     Paragraph(cap, style_td),
                     Paragraph(f"${ej:,.2f}", style_td_num),
                     Paragraph(f"${est:,.2f}", style_td_num),
-                    Paragraph(f"{pct:.1f}%", style_td_num),
+                    Paragraph(f"{pct:,.2f}%", style_td_num),
                     Paragraph(f"${rest:,.2f}", style_td_num)
                 ])
                 
@@ -1003,7 +1003,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
             Paragraph("<b>TOTAL PRESUPUESTO</b>", style_td_bold),
             Paragraph(f"<b>${sum_ej_pres:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_est_pres:,.2f}</b>", style_td_num_bold),
-            Paragraph(f"<b>{avg_pct_pres:.1f}%</b>", style_td_num_bold),
+            Paragraph(f"<b>{avg_pct_pres:,.2f}%</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_rest_pres:,.2f}</b>", style_td_num_bold)
         ])
                 
@@ -2105,12 +2105,12 @@ with tab_egresos:
                 "DESCRIPCION": st.column_config.TextColumn("📝 Descripción"),
                 "ESTADO": st.column_config.SelectboxColumn("✅ Estado", options=estados_gastos),
                 "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_gastos),
-                "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%.2f", disabled=True),
+                "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%,.2f", disabled=True),
                 "MONEDA": st.column_config.TextColumn("Moneda", disabled=True),
-                "TASA": st.column_config.NumberColumn("Tasa", format="%.4f", disabled=True),
-                "MONTO BASE USD": st.column_config.NumberColumn("Monto Base USD", format="$%.2f", disabled=True),
-                "HONORARIOS": st.column_config.NumberColumn("Honorarios", format="$%.2f", disabled=True),
-                "COSTO TOTAL": st.column_config.NumberColumn("Costo Total", format="$%.2f", disabled=True),
+                "TASA": st.column_config.NumberColumn("Tasa", format="%,.4f", disabled=True),
+                "MONTO BASE USD": st.column_config.NumberColumn("Monto Base USD", format="$%,.2f", disabled=True),
+                "HONORARIOS": st.column_config.NumberColumn("Honorarios", format="$%,.2f", disabled=True),
+                "COSTO TOTAL": st.column_config.NumberColumn("Costo Total", format="$%,.2f", disabled=True),
                 "TIPO": st.column_config.TextColumn("Tipo", disabled=True),
                 "CAPITULO": st.column_config.TextColumn("Capítulo", disabled=True),
                 "SUBCAPITULO": st.column_config.TextColumn("Sub-Capítulo", disabled=True),
@@ -2196,7 +2196,7 @@ with tab_egresos:
         column_config_gastos = {
             "FECHA": st.column_config.DateColumn("📅 Fecha"),
             "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_gastos, required=True),
-            "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
+            "TASA": st.column_config.NumberColumn("📈 Tasa", format="%,.4f", min_value=0.0),
             "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%,.2f", min_value=0.0, disabled=True),
             "% DISTRIBUCIÓN": st.column_config.NumberColumn("📊 % Distribución", format="%,.2f%%", min_value=0.0, max_value=100.0, step=0.1),
             "% ADMIN": st.column_config.NumberColumn("💼 % Admin", format="%,.2f", min_value=0.0),
@@ -2287,7 +2287,7 @@ with tab_egresos:
                                 suma_pct += pct
                                 
                         if abs(suma_pct - 100.0) > 0.05:
-                            errores.append(f"El grupo con fecha {g_key.split('_')[0]} suma {suma_pct:.1f}%.")
+                            errores.append(f"El grupo con fecha {g_key.split('_')[0]} suma {suma_pct:,.2f}%.")
                             
                     if errores:
                         st.error("⚠️ **Error de Distribución:** No se puede guardar. La suma de los porcentajes debe ser exactamente 100% para cada gasto dividido. Asegúrate de tener a la vista (filtrados) todas las partes del gasto que deseas modificar.\n" + "\n".join(errores))
@@ -2344,9 +2344,9 @@ with tab_distribucion:
                 "FECHA": st.column_config.DateColumn("Fecha", disabled=True),
                 "PROVEEDOR": st.column_config.TextColumn("Proveedor", disabled=True),
                 "DESCRIPCION": st.column_config.TextColumn("Descripción", disabled=True),
-                "MONTO ORIG": st.column_config.NumberColumn("Monto Orig.", format="%.2f", disabled=True),
+                "MONTO ORIG": st.column_config.NumberColumn("Monto Orig.", format="%,.2f", disabled=True),
                 "MONEDA": st.column_config.TextColumn("Moneda", disabled=True),
-                "COSTO TOTAL": st.column_config.NumberColumn("Costo Total (USD)", format="%.2f", disabled=True),
+                "COSTO TOTAL": st.column_config.NumberColumn("Costo Total (USD)", format="$%,.2f", disabled=True),
                 "CAPITULO": st.column_config.TextColumn("Capítulo Actual", disabled=True),
                 "SUBCAPITULO": st.column_config.TextColumn("Sub-Capítulo Actual", disabled=True)
             },
@@ -2375,7 +2375,7 @@ with tab_distribucion:
             column_config={
                 "Capítulo": st.column_config.SelectboxColumn("Capítulo Destino", options=lista_cap_dist, required=True),
                 "Sub-Capítulo": st.column_config.SelectboxColumn("Sub-Capítulo Destino", options=lista_sub_dist, required=True),
-                "Porcentaje (%)": st.column_config.NumberColumn("Porcentaje (%)", min_value=0.0, max_value=100.0, step=1.0, required=True)
+                "Porcentaje (%)": st.column_config.NumberColumn("Porcentaje (%)", format="%,.2f%%", min_value=0.0, max_value=100.0, step=0.01, required=True)
             },
             num_rows="dynamic",
             use_container_width=True,
@@ -2467,7 +2467,7 @@ with tab_ingresos:
     column_config_ing = {
         "FECHA": st.column_config.DateColumn("📅 Fecha"),
         "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_ingresos, required=True),
-        "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
+        "TASA": st.column_config.NumberColumn("📈 Tasa", format="%,.4f", min_value=0.0),
         "MONTO ORIG": st.column_config.NumberColumn("💰 Monto", format="%,.2f", min_value=0.0),
         "MONTO BASE USD": st.column_config.NumberColumn("💵 Monto USD", format="$%,.2f", disabled=True),
         "FORMA PAGO": st.column_config.SelectboxColumn("💳 Forma de Pago", options=fp_ingresos, required=True),
@@ -2675,13 +2675,13 @@ with tab_contratos:
             use_container_width=True,
             column_config={
                 "PROVEEDOR": st.column_config.TextColumn("Subcontratista"),
-                "COSTO TOTAL": st.column_config.NumberColumn("Monto Contratado (USD)", format="$%.2f"),
-                "MONTO PAGADO": st.column_config.NumberColumn("Monto Ejecutado/Pagado (USD)", format="$%.2f"),
-                "SALDO CONTRATO": st.column_config.NumberColumn("Saldo Pendiente (USD)", format="$%.2f"),
+                "COSTO TOTAL": st.column_config.NumberColumn("Monto Contratado (USD)", format="$%,.2f"),
+                "MONTO PAGADO": st.column_config.NumberColumn("Monto Ejecutado/Pagado (USD)", format="$%,.2f"),
+                "SALDO CONTRATO": st.column_config.NumberColumn("Saldo Pendiente (USD)", format="$%,.2f"),
                 "% EJECUCIÓN": st.column_config.ProgressColumn(
                     "% Ejecución",
                     help="Porcentaje del contrato pagado/ejecutado",
-                    format="%.1f%%",
+                    format="%,.2f%%",
                     min_value=0.0,
                     max_value=100.0
                 )
@@ -2771,7 +2771,7 @@ with tab_contratos:
                 "PROVEEDOR": st.column_config.TextColumn("Subcontratista"),
                 "DESCRIPCION": st.column_config.TextColumn("Descripción"),
                 "MONEDA": st.column_config.SelectboxColumn("💵 Moneda", options=monedas_contratos, required=True),
-                "TASA": st.column_config.NumberColumn("📈 Tasa", format="%.4f", min_value=0.0),
+                "TASA": st.column_config.NumberColumn("📈 Tasa", format="%,.4f", min_value=0.0),
                 "MONTO ORIG": st.column_config.NumberColumn("💰 Monto Orig.", format="%,.2f", min_value=0.0),
                 "% ADMIN": st.column_config.NumberColumn("💼 % Admin", format="%,.2f", min_value=0.0),
                 "HONORARIOS": st.column_config.NumberColumn("💼 Honorarios (USD)", format="$%,.2f", disabled=True),
@@ -3003,11 +3003,11 @@ with tab_presupuestos:
     # Configuración de columnas
     config_cols = {
         "CAPITULO": st.column_config.TextColumn("🏗️ Capítulo", disabled=True),
-        "MONTO EJECUTADO": st.column_config.NumberColumn("🔴 Monto Ejecutado (USD)", format="$%.2f", disabled=True),
-        "MONTO ESTIMADO": st.column_config.NumberColumn("🎯 Monto Estimado (USD)", format="$%.2f", min_value=0.0),
-        "PORCENTAJE_EJECUCION": st.column_config.NumberColumn("🔵 ✍️ % EJECUCIÓN (EDITABLE)", format="%.1f%%", min_value=0.1, max_value=100.0, step=0.1, help="Porcentaje de avance del capítulo. Si cambias este porcentaje, se recalculará automáticamente el Monto Estimado."),
-        "RESTANTE": st.column_config.NumberColumn("⏳ Restante / Desviación (USD)", format="$%.2f", disabled=True, help="Monto Estimado - Monto Ejecutado. Valores negativos indican que se ha sobrepasado el estimado."),
-        "AREA_M2": st.column_config.NumberColumn("🟢 ✍️ ÁREA CAPÍTULO (m² - EDITABLE)", format="%.2f", min_value=0.0, help="Área de construcción de este capítulo. Si es 0.0, se considera costo global/fijo."),
+        "MONTO EJECUTADO": st.column_config.NumberColumn("🔴 Monto Ejecutado (USD)", format="$%,.2f", disabled=True),
+        "MONTO ESTIMADO": st.column_config.NumberColumn("🎯 Monto Estimado (USD)", format="$%,.2f", min_value=0.0),
+        "PORCENTAJE_EJECUCION": st.column_config.NumberColumn("🔵 ✍️ % EJECUCIÓN (EDITABLE)", format="%,.2f%%", min_value=0.1, max_value=100.0, step=0.1, help="Porcentaje de avance del capítulo. Si cambias este porcentaje, se recalculará automáticamente el Monto Estimado."),
+        "RESTANTE": st.column_config.NumberColumn("⏳ Restante / Desviación (USD)", format="$%,.2f", disabled=True, help="Monto Estimado - Monto Ejecutado. Valores negativos indican que se ha sobrepasado el estimado."),
+        "AREA_M2": st.column_config.NumberColumn("🟢 ✍️ ÁREA CAPÍTULO (m² - EDITABLE)", format="%,.2f", min_value=0.0, help="Área de construcción de este capítulo. Si es 0.0, se considera costo global/fijo."),
         "EJECUTADO_M2": st.column_config.TextColumn("💵 Ejecutado USD/m²", disabled=True),
         "ESTIMADO_M2": st.column_config.TextColumn("📐 Estimado USD/m²", disabled=True),
     }
@@ -3068,7 +3068,7 @@ with tab_presupuestos:
     col_m1.metric("🔴 TOTAL EJECUTADO", f"$ {total_ejecutado:,.2f}", delta="Costo Real Acumulado", delta_color="off")
     col_m2.metric("🎯 TOTAL ESTIMADO", f"$ {total_estimado:,.2f}", delta="Proyección de Costos", delta_color="off")
     col_m3.metric("⏳ RESTANTE / MARGEN", f"$ {total_restante:,.2f}", delta="Disponible" if total_restante >= 0 else "Excedido", delta_color="normal" if total_restante >= 0 else "inverse")
-    col_m4.metric("📈 AVANCE CONTABLE TOTAL", f"{pct_avance_total:.1f}%", delta="Porcentaje de Ejecución", delta_color="normal" if pct_avance_total <= 100 else "inverse")
+    col_m4.metric("📈 AVANCE CONTABLE TOTAL", f"{pct_avance_total:,.2f}%", delta="Porcentaje de Ejecución", delta_color="normal" if pct_avance_total <= 100 else "inverse")
 
     # 8. Gráfico Visual Comparativo
     if not presupuestos_grouped.empty:
