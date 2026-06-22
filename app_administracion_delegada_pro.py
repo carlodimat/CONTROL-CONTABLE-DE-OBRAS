@@ -2969,6 +2969,25 @@ with tab_presupuestos:
     st.markdown("#### 📝 Modificar Presupuesto Estimado")
     st.info("💡 Haz doble clic en cualquier celda de la columna **Monto Estimado (USD)**, **% Ejecución** o **Área Capítulo (m²)** para editarlas y haz clic en **Guardar Cambios**.")
 
+    # Estilos CSS inyectados para resaltar el campo de edición activo
+    st.markdown("""
+        <style>
+        /* Estilo para el campo de edición activo dentro del editor de datos */
+        div[data-testid="stDataEditor"] input,
+        div[data-testid="stDataEditor"] textarea,
+        .glide-grid-editor,
+        .gdg-input {
+            background-color: #e0f2fe !important; /* Fondo azul tenue */
+            color: #1e3a8a !important; /* Números más oscuros (azul marino) */
+            font-size: 20px !important; /* Tamaño más grande */
+            font-weight: 900 !important; /* Más oscuro/grueso */
+            border: 2px solid #2563eb !important;
+            border-radius: 8px !important;
+            text-align: center !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     columnas_editables = ['CAPITULO', 'MONTO EJECUTADO', 'MONTO ESTIMADO', 'PORCENTAJE_EJECUCION', 'RESTANTE', 'AREA_M2', 'EJECUTADO_M2', 'ESTIMADO_M2']
 
     df_editable_input = presupuestos_grouped[columnas_editables].copy()
@@ -2978,7 +2997,7 @@ with tab_presupuestos:
         "CAPITULO": st.column_config.TextColumn("🏗️ Capítulo", disabled=True),
         "MONTO EJECUTADO": st.column_config.NumberColumn("🔴 Monto Ejecutado (USD)", format="$%.2f", disabled=True),
         "MONTO ESTIMADO": st.column_config.NumberColumn("🎯 Monto Estimado (USD)", format="$%.2f", min_value=0.0),
-        "PORCENTAJE_EJECUCION": st.column_config.NumberColumn("📈 % Ejecución", format="%.1f%%", min_value=0.1, max_value=100.0, help="Porcentaje de avance del capítulo. Si cambias este porcentaje, se recalculará automáticamente el Monto Estimado."),
+        "PORCENTAJE_EJECUCION": st.column_config.NumberColumn("🔵 ✍️ % EJECUCIÓN (EDITABLE)", format="%.1f%%", min_value=0.1, max_value=100.0, step=0.1, help="Porcentaje de avance del capítulo. Si cambias este porcentaje, se recalculará automáticamente el Monto Estimado."),
         "RESTANTE": st.column_config.NumberColumn("⏳ Restante / Desviación (USD)", format="$%.2f", disabled=True, help="Monto Estimado - Monto Ejecutado. Valores negativos indican que se ha sobrepasado el estimado."),
         "AREA_M2": st.column_config.NumberColumn("📐 Área Capítulo (m²)", format="%.2f", min_value=0.0, help="Área de construcción de este capítulo. Si es 0.0, se considera costo global/fijo."),
         "EJECUTADO_M2": st.column_config.TextColumn("💵 Ejecutado USD/m²", disabled=True),
