@@ -2969,9 +2969,17 @@ with tab_presupuestos:
     st.markdown("#### 📝 Modificar Presupuesto Estimado")
     st.info("💡 Haz doble clic en cualquier celda de la columna **Monto Estimado (USD)**, **% Ejecución** o **Área Capítulo (m²)** para editarlas y haz clic en **Guardar Cambios**.")
 
-    # Estilos CSS inyectados para resaltar el campo de edición activo
+    # Estilos CSS inyectados para resaltar el campo de edición activo y agrandar la tabla completa
     st.markdown("""
         <style>
+        /* Estilo global de la tabla de presupuestos */
+        div[data-testid="stDataEditor"] {
+            --gdg-font-size: 16px !important;
+            --gdg-header-font-size: 14px !important;
+            --gdg-row-height: 40px !important;
+            --gdg-font-family: "Segoe UI Semibold", "Arial Bold", -apple-system, sans-serif !important;
+        }
+        
         /* Estilo para el campo de edición activo dentro del editor de datos */
         div[data-testid="stDataEditor"] input,
         div[data-testid="stDataEditor"] textarea,
@@ -2999,7 +3007,7 @@ with tab_presupuestos:
         "MONTO ESTIMADO": st.column_config.NumberColumn("🎯 Monto Estimado (USD)", format="$%.2f", min_value=0.0),
         "PORCENTAJE_EJECUCION": st.column_config.NumberColumn("🔵 ✍️ % EJECUCIÓN (EDITABLE)", format="%.1f%%", min_value=0.1, max_value=100.0, step=0.1, help="Porcentaje de avance del capítulo. Si cambias este porcentaje, se recalculará automáticamente el Monto Estimado."),
         "RESTANTE": st.column_config.NumberColumn("⏳ Restante / Desviación (USD)", format="$%.2f", disabled=True, help="Monto Estimado - Monto Ejecutado. Valores negativos indican que se ha sobrepasado el estimado."),
-        "AREA_M2": st.column_config.NumberColumn("📐 Área Capítulo (m²)", format="%.2f", min_value=0.0, help="Área de construcción de este capítulo. Si es 0.0, se considera costo global/fijo."),
+        "AREA_M2": st.column_config.NumberColumn("🟢 ✍️ ÁREA CAPÍTULO (m² - EDITABLE)", format="%.2f", min_value=0.0, help="Área de construcción de este capítulo. Si es 0.0, se considera costo global/fijo."),
         "EJECUTADO_M2": st.column_config.TextColumn("💵 Ejecutado USD/m²", disabled=True),
         "ESTIMADO_M2": st.column_config.TextColumn("📐 Estimado USD/m²", disabled=True),
     }
