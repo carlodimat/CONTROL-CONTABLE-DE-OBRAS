@@ -110,6 +110,48 @@ def generar_grafico_ejec_vs_est(df_presupuestos):
     buf.seek(0)
     return Image(buf, width=640, height=320)
 
+def generar_grafico_evolucion_pdf(df_gastos, periodo="Mensual"):
+    if df_gastos.empty:
+        return None
+        
+    df_evolucion = df_gastos.dropna(subset=['FECHA']).copy()
+    if df_evolucion.empty:
+        return None
+        
+    df_evolucion['FECHA_DT'] = pd.to_datetime(df_evolucion['FECHA'], errors='coerce')
+    df_evolucion = df_evolucion.dropna(subset=['FECHA_DT'])
+    if df_evolucion.empty:
+        return None
+        
+    if periodo == "Mensual":
+        df_evolucion['PERIODO'] = df_evolucion['FECHA_DT'].dt.to_period('M').astype(str)
+    else:
+        df_evolucion['PERIODO'] = df_evolucion['FECHA_DT'].dt.to_period('W').astype(str)
+        
+    df_grouped = df_evolucion.groupby('PERIODO')['COSTO TOTAL'].sum().reset_index().sort_values('PERIODO')
+    
+    if df_grouped.empty:
+        return None
+        
+    fig, ax = plt.subplots(figsize=(10.0, 5.0))
+    x = range(len(df_grouped))
+    ax.bar(x, df_grouped['COSTO TOTAL'], color='#3b82f6')
+    ax.set_xticks(x)
+    
+    rotation = 45 if periodo == "Semanal" else 0
+    ha = 'right' if periodo == "Semanal" else 'center'
+    ax.set_xticklabels(df_grouped['PERIODO'], rotation=rotation, ha=ha, fontsize=7.5)
+    
+    ax.set_ylabel('Monto (USD)', fontsize=8.5)
+    ax.set_title(f"Evolución de Gastos ({periodo})", fontsize=11, fontweight='bold', pad=10)
+    plt.tight_layout()
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=150)
+    plt.close(fig)
+    buf.seek(0)
+    return Image(buf, width=640, height=320)
+
 def generar_grafico_contratos(df_contratos):
     if df_contratos.empty:
         return None
@@ -336,8 +378,8 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
     doc = SimpleDocTemplate(
         buf,
         pagesize=letter,
-        leftMargin=54,
-        rightMargin=54,
+        leftMargin=18,
+        rightMargin=18,
         topMargin=72,
         bottomMargin=72
     )
@@ -361,7 +403,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
     
     # Define Page Templates for mixed layout
     frame_p = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id='portrait_frame')
-    frame_l = Frame(54, 72, 684, 468, id='landscape_frame') # margin 54, width 792-108=684, height 612-144=468
+    frame_l = Frame(18, 72, 756, 468, id='landscape_frame') # margin 18, width 792-36=756, height 612-144=468
     
     template_p = PageTemplate(id='portrait', frames=frame_p, pagesize=letter)
     template_l = PageTemplate(id='landscape', frames=frame_l, pagesize=landscape(letter))
@@ -440,10 +482,22 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
         alignment=2 # Right
     )
     
+    style_td_center = ParagraphStyle(
+        'TableCellCenter',
+        parent=style_td,
+        alignment=1 # Center
+    )
+    
     style_td_bold = ParagraphStyle(
         'TableCellBold',
         parent=style_td,
         fontName='Helvetica-Bold'
+    )
+    
+    style_td_num_bold = ParagraphStyle(
+        'TableCellNumBold',
+        parent=style_td_bold,
+        alignment=2 # Right
     )
     
 
@@ -608,6 +662,24 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
 
     df_graficos_pdf = separar_administracion_delegada(df_gastos_base)
 
+    # 1B. Gráfico de Evolución de Gastos (Mensual)
+    if opciones_pdf.get("evolucion_mensual", True):
+        img_evol_m = generar_grafico_evolucion_pdf(df_graficos_pdf, periodo="Mensual")
+        if img_evol_m:
+            agregar_pagina_con_orientacion("landscape")
+            story.append(Paragraph("Evolución de Gastos (Mensual)", style_h1))
+            story.append(Spacer(1, 10))
+            story.append(img_evol_m)
+
+    # 1C. Gráfico de Evolución de Gastos (Semanal)
+    if opciones_pdf.get("evolucion_semanal", True):
+        img_evol_s = generar_grafico_evolucion_pdf(df_graficos_pdf, periodo="Semanal")
+        if img_evol_s:
+            agregar_pagina_con_orientacion("landscape")
+            story.append(Paragraph("Evolución de Gastos (Semanal)", style_h1))
+            story.append(Spacer(1, 10))
+            story.append(img_evol_s)
+
     # 2. Gráfico por Tipo de Gasto (Donut)
     if opciones_pdf.get("tipo_gasto", True):
         img_tipo = generar_grafico_tipo_gasto(df_graficos_pdf)
@@ -750,20 +822,83 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
             Paragraph("<b>Descripción</b>", style_th),
             Paragraph("<b>Moneda</b>", style_th),
             Paragraph("<b>Monto Orig.</b>", style_th),
-            Paragraph("<b>Honorarios</b>", style_th),
+            Paragraph("<b>Admin.<br/>Delegada</b>", style_th),
             Paragraph("<b>Costo Total (USD)</b>", style_th),
-            Paragraph("<b>Capítulo</b>", style_th)
+            Paragraph("<b>Distribución</b>", style_th)
         ]
         
         eg_rows = [eg_headers]
-        df_gastos_sorted = df_gastos_base.sort_values('FECHA', ascending=False) if not df_gastos_base.empty else pd.DataFrame()
         
         sum_orig_eg = 0.0
         sum_hono_eg = 0.0
         sum_tot_eg = 0.0
         
-        if not df_gastos_sorted.empty:
-            for idx, row in df_gastos_sorted.iterrows():
+        if not df_gastos_base.empty:
+            df_agrupar = df_gastos_base.copy()
+            df_agrupar['FECHA_TMP'] = df_agrupar['FECHA'].fillna(pd.Timestamp('1900-01-01'))
+            df_agrupar['PROVEEDOR_TMP'] = df_agrupar['PROVEEDOR'].fillna('SIN PROVEEDOR')
+            df_agrupar['MONEDA_TMP'] = df_agrupar['MONEDA'].fillna('USD')
+            
+            def abreviar(texto):
+                if pd.isna(texto) or not isinstance(texto, str): return ""
+                texto = texto.upper().strip()
+                # Limpiar acentos básicos para el código
+                texto = texto.replace('Ó', 'O').replace('Á', 'A').replace('É', 'E').replace('Í', 'I').replace('Ú', 'U')
+                words = [w for w in texto.split() if w not in ['DE', 'LA', 'EL', 'LOS', 'LAS', 'Y', 'EN', '-']]
+                if len(words) >= 2:
+                    return "".join([w[0] for w in words])
+                elif len(words) == 1:
+                    return words[0][:2]
+                return ""
+                
+            import re
+            def limpiar_desc_pdf(desc):
+                if not isinstance(desc, str): return ""
+                return re.sub(r' \(\d+(\.\d+)?\%\)$', '', desc).strip().upper()
+                
+            df_agrupar['DESCRIPCION_LIMPIA'] = df_agrupar['DESCRIPCION'].apply(limpiar_desc_pdf)
+            
+            agrupado = []
+            for name, group in df_agrupar.groupby(['FECHA_TMP', 'PROVEEDOR_TMP', 'MONEDA_TMP', 'DESCRIPCION_LIMPIA']):
+                fecha_val = name[0] if name[0] != pd.Timestamp('1900-01-01') else pd.NaT
+                prov_val = name[1] if name[1] != 'SIN PROVEEDOR' else ''
+                mon_val = name[2]
+                desc_val = name[3]
+                
+                m_orig_sum = group['MONTO ORIG'].sum()
+                hono_sum = group['HONORARIOS'].sum()
+                cost_tot_sum = group['COSTO TOTAL'].sum()
+                
+                num_items = len(group)
+                
+                if num_items > 1 and cost_tot_sum > 0:
+                    codigos = []
+                    for _, row in group.iterrows():
+                        pct = int(round((row['COSTO TOTAL'] / cost_tot_sum) * 100))
+                        if pct > 0:
+                            c_abrev = abreviar(str(row['CAPITULO']))
+                            s_abrev = abreviar(str(row['SUBCAPITULO']))
+                            codigos.append(f"{c_abrev}{s_abrev}{pct}")
+                    cap_val = " ".join(codigos)
+                    if not cap_val: # Fallback por si todos eran 0%
+                        cap_val = str(group['CAPITULO'].iloc[0])
+                else:
+                    cap_val = str(group['CAPITULO'].iloc[0])
+                
+                agrupado.append({
+                    'FECHA': fecha_val,
+                    'PROVEEDOR': prov_val,
+                    'DESCRIPCION': desc_val,
+                    'MONEDA': mon_val,
+                    'MONTO ORIG': m_orig_sum,
+                    'HONORARIOS': hono_sum,
+                    'COSTO TOTAL': cost_tot_sum,
+                    'CAPITULO': cap_val
+                })
+                
+            df_agrupado = pd.DataFrame(agrupado).sort_values('FECHA', ascending=False)
+            
+            for idx, row in df_agrupado.iterrows():
                 f_str = row['FECHA'].strftime('%d/%m/%Y') if not pd.isnull(row['FECHA']) else ''
                 prov = str(row['PROVEEDOR'])
                 desc = str(row['DESCRIPCION'])
@@ -777,19 +912,12 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
                 sum_hono_eg += hono
                 sum_tot_eg += cost_tot
                 
-                if len(desc) > 35:
-                    desc = desc[:32] + "..."
-                if len(prov) > 18:
-                    prov = prov[:15] + "..."
-                if len(cap) > 15:
-                    cap = cap[:12] + "..."
-                    
                 eg_rows.append([
                     Paragraph(f_str, style_td),
                     Paragraph(prov, style_td),
                     Paragraph(desc, style_td),
-                    Paragraph(mon, style_td),
-                    Paragraph(f"{m_orig:,.2f}", style_td_num),
+                    Paragraph(mon, style_td_center),
+                    Paragraph(f"${m_orig:,.2f}", style_td_num),
                     Paragraph(f"${hono:,.2f}", style_td_num),
                     Paragraph(f"${cost_tot:,.2f}", style_td_num),
                     Paragraph(cap, style_td)
@@ -801,13 +929,13 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
             Paragraph("", style_td),
             Paragraph("", style_td),
             Paragraph("", style_td),
-            Paragraph(f"<b>{sum_orig_eg:,.2f}</b>", style_td_num_bold),
+            Paragraph(f"<b>${sum_orig_eg:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_hono_eg:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_tot_eg:,.2f}</b>", style_td_num_bold),
             Paragraph("", style_td)
         ])
                 
-        t_egresos = Table(eg_rows, colWidths=[55, 75, 100, 50, 55, 55, 60, 54], repeatRows=1)
+        t_egresos = Table(eg_rows, colWidths=[55, 75, 136, 45, 55, 55, 60, 95], repeatRows=1)
         t_egresos.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), c_primary),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
@@ -830,6 +958,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
             Paragraph("<b>Pagador</b>", style_th),
             Paragraph("<b>Descripción</b>", style_th),
             Paragraph("<b>Moneda</b>", style_th),
+            Paragraph("<b>Tasa</b>", style_th),
             Paragraph("<b>Monto Orig.</b>", style_th),
             Paragraph("<b>Monto (USD)</b>", style_th),
             Paragraph("<b>Forma de Pago</b>", style_th)
@@ -847,6 +976,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
                 prov = str(row['PROVEEDOR'])
                 desc = str(row['DESCRIPCION'])
                 mon = str(row['MONEDA'])
+                tasa = float(row['TASA']) if 'TASA' in row and not pd.isnull(row['TASA']) else 0.0
                 m_orig = float(row['MONTO ORIG'])
                 m_usd = float(row['MONTO BASE USD'])
                 fp = str(row['FORMA PAGO'])
@@ -854,17 +984,13 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
                 sum_orig_in += m_orig
                 sum_usd_in += m_usd
                 
-                if len(desc) > 40:
-                    desc = desc[:37] + "..."
-                if len(prov) > 20:
-                    prov = prov[:17] + "..."
-                    
                 in_rows.append([
                     Paragraph(f_str, style_td),
                     Paragraph(prov, style_td),
                     Paragraph(desc, style_td),
-                    Paragraph(mon, style_td),
-                    Paragraph(f"{m_orig:,.2f}", style_td_num),
+                    Paragraph(mon, style_td_center),
+                    Paragraph(f"{tasa:,.2f}", style_td_num),
+                    Paragraph(f"${m_orig:,.2f}", style_td_num),
                     Paragraph(f"${m_usd:,.2f}", style_td_num),
                     Paragraph(fp, style_td)
                 ])
@@ -875,12 +1001,13 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
             Paragraph("", style_td),
             Paragraph("", style_td),
             Paragraph("", style_td),
-            Paragraph(f"<b>{sum_orig_in:,.2f}</b>", style_td_num_bold),
+            Paragraph("", style_td),
+            Paragraph(f"<b>${sum_orig_in:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_usd_in:,.2f}</b>", style_td_num_bold),
             Paragraph("", style_td)
         ])
                 
-        t_ingresos = Table(in_rows, colWidths=[50, 75, 109, 50, 65, 65, 90], repeatRows=1)
+        t_ingresos = Table(in_rows, colWidths=[50, 75, 151, 45, 40, 60, 60, 95], repeatRows=1)
         t_ingresos.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), c_primary),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
@@ -2358,6 +2485,13 @@ with tab_distribucion:
     st.info("Selecciona los egresos a los que deseas aplicarles una regla de distribución masiva. Ideal para facturas generales o compras de materiales combinados ingresados recientemente.")
     
     df_gastos_dist = df_gastos.copy()
+    
+    # Filtro de seguridad: solo mostrar egresos sin ningún tipo de distribución (Capítulo vacío)
+    if not df_gastos_dist.empty:
+        df_gastos_dist['CAPITULO_STR'] = df_gastos_dist['CAPITULO'].astype(str).str.strip().str.upper()
+        mask_vacio = df_gastos_dist['CAPITULO_STR'].isin(['', 'NAN', 'NONE', 'SIN CAPÍTULO']) | df_gastos_dist['CAPITULO'].isna()
+        df_gastos_dist = df_gastos_dist[mask_vacio].copy()
+        
     if not df_gastos_dist.empty:
         df_gastos_dist.insert(0, "Seleccionar", False)
         
@@ -3244,13 +3378,29 @@ with tab_graficos:
         df_graficos = separar_administracion_delegada(df_gastos)
         
         # Gráficos detallados ordenados uno debajo de otro
-        # 1. Gráfico de Evolución Mensual
-        graf_mes = df_graficos.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
-        fig_mes = px.bar(graf_mes, x='MES_AÑO', y='COSTO TOTAL', 
-                         title="Evolución de Gastos por Período",
-                         color_discrete_sequence=['#3b82f6'])
-        fig_mes.update_layout(margin=dict(t=40, b=20, l=40, r=20))
-        st.plotly_chart(fig_mes, use_container_width=True)
+        # 1. Gráfico de Evolución de Gastos por Período
+        periodo_actual = st.session_state.get("periodo_graf", "Mensual")
+        
+        df_evolucion = df_graficos.dropna(subset=['FECHA']).copy()
+        if not df_evolucion.empty:
+            df_evolucion['FECHA_DT'] = pd.to_datetime(df_evolucion['FECHA'], errors='coerce')
+            df_evolucion = df_evolucion.dropna(subset=['FECHA_DT'])
+            
+            if periodo_actual == "Mensual":
+                df_evolucion['PERIODO'] = df_evolucion['FECHA_DT'].dt.to_period('M').astype(str)
+            else:
+                df_evolucion['PERIODO'] = df_evolucion['FECHA_DT'].dt.to_period('W').astype(str)
+                
+            graf_mes = df_evolucion.groupby('PERIODO')['COSTO TOTAL'].sum().reset_index().sort_values('PERIODO')
+            
+            fig_mes = px.bar(graf_mes, x='PERIODO', y='COSTO TOTAL', 
+                             title=f"Evolución de Gastos por Período ({periodo_actual})",
+                             labels={'PERIODO': 'Período', 'COSTO TOTAL': 'Costo Total (USD)'},
+                             color_discrete_sequence=['#3b82f6'])
+            fig_mes.update_layout(margin=dict(t=40, b=20, l=40, r=20))
+            st.plotly_chart(fig_mes, use_container_width=True)
+        else:
+            st.info("No hay fechas válidas para graficar la evolución por período.")
         
         # 2. Gráfico Top Proveedores (Barras Horizontales)
         graf_prov = df_graficos.groupby('PROVEEDOR')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=True).tail(10)
@@ -3361,10 +3511,21 @@ with tab_datos_graficos:
         col_d1, col_d2 = st.columns(2)
         
         with col_d1:
-            st.markdown("#### Evolución Mensual")
-            df_mes = df_graficos_dt.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
-            df_mes.loc['Total'] = ['TOTAL', df_mes['COSTO TOTAL'].sum()]
-            st.dataframe(df_mes.style.format({'COSTO TOTAL': formatear_usd}), use_container_width=True)
+            periodo_actual_dt = st.session_state.get("periodo_graf", "Mensual")
+            st.markdown(f"#### Evolución {periodo_actual_dt}")
+            df_evolucion_dt = df_graficos_dt.dropna(subset=['FECHA']).copy()
+            if not df_evolucion_dt.empty:
+                df_evolucion_dt['FECHA_DT'] = pd.to_datetime(df_evolucion_dt['FECHA'], errors='coerce')
+                df_evolucion_dt = df_evolucion_dt.dropna(subset=['FECHA_DT'])
+                if periodo_actual_dt == "Mensual":
+                    df_evolucion_dt['PERIODO'] = df_evolucion_dt['FECHA_DT'].dt.to_period('M').astype(str)
+                else:
+                    df_evolucion_dt['PERIODO'] = df_evolucion_dt['FECHA_DT'].dt.to_period('W').astype(str)
+                df_mes = df_evolucion_dt.groupby('PERIODO')['COSTO TOTAL'].sum().reset_index().sort_values('PERIODO')
+                df_mes.loc['Total'] = ['TOTAL', df_mes['COSTO TOTAL'].sum()]
+                st.dataframe(df_mes.style.format({'COSTO TOTAL': formatear_usd}), use_container_width=True)
+            else:
+                st.info("Sin datos de fechas.")
             
             st.markdown("#### Top 10 Proveedores")
             df_prov = df_graficos_dt.groupby('PROVEEDOR')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False).head(10)
@@ -3505,12 +3666,14 @@ st.sidebar.download_button(
 if "pdf_elements" not in st.session_state:
     st.session_state.pdf_elements = pd.DataFrame([
         {"Elemento": "📊 Flujo de Caja General", "Tipo": "Gráfico", "Imprimir": True},
+        {"Elemento": "📅 Evolución de Gastos (Mensual)", "Tipo": "Gráfico", "Imprimir": True},
+        {"Elemento": "📆 Evolución de Gastos (Semanal)", "Tipo": "Gráfico", "Imprimir": True},
         {"Elemento": "🍩 Distribución por Tipo de Gasto", "Tipo": "Gráfico", "Imprimir": True},
         {"Elemento": "🔨 Progreso Presupuesto Capítulo", "Tipo": "Gráfico", "Imprimir": True},
         {"Elemento": "📦 Egresos por Capítulo", "Tipo": "Gráfico", "Imprimir": True},
         {"Elemento": "🏷️ Top 15 Sub-Capítulos", "Tipo": "Gráfico", "Imprimir": True},
-        {"Elemento": "🌳 Mapa de Árbol (Treemap)", "Tipo": "Gráfico", "Imprimir": True},
-        {"Elemento": "🎯 Estructura Concéntrica", "Tipo": "Gráfico", "Imprimir": True},
+        {"Elemento": "🌳 Mapa de Árbol (Treemap)", "Tipo": "Gráfico", "Imprimir": False},
+        {"Elemento": "🎯 Estructura Concéntrica", "Tipo": "Gráfico", "Imprimir": False},
         {"Elemento": "💼 Contratos: Ejecutado vs Pendiente", "Tipo": "Gráfico", "Imprimir": True},
         {"Elemento": "📝 Listado Detallado de Egresos", "Tipo": "Tabla", "Imprimir": True},
         {"Elemento": "💵 Listado Detallado de Ingresos", "Tipo": "Tabla", "Imprimir": True},
@@ -3539,6 +3702,8 @@ selected_elements = set(edited_pdf_df[edited_pdf_df["Imprimir"] == True]["Elemen
 
 opciones_pdf = {
     "flujo_caja": "📊 Flujo de Caja General" in selected_elements,
+    "evolucion_mensual": "📅 Evolución de Gastos (Mensual)" in selected_elements,
+    "evolucion_semanal": "📆 Evolución de Gastos (Semanal)" in selected_elements,
     "tipo_gasto": "🍩 Distribución por Tipo de Gasto" in selected_elements,
     "progreso_cap": "🔨 Progreso Presupuesto Capítulo" in selected_elements,
     "egresos_cap": "📦 Egresos por Capítulo" in selected_elements,
