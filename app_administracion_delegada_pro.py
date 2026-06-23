@@ -572,11 +572,20 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
     story.append(Paragraph("REPORTE MAESTRO DE CONTROL DE OBRA", style_cover_title))
     story.append(Paragraph("Sistema de Administración Delegada — DI MATTEO DESIGN-DIMAQUINAS C.A.", style_cover_subtitle))
     
+    # Calcular fecha del último registro (excluyendo auditoría)
+    df_trans_pdf = df_app[df_app['CLASE'].isin(['GASTO', 'INGRESO'])] if df_app is not None else pd.DataFrame()
+    last_reg_date_pdf = "N/A"
+    if not df_trans_pdf.empty:
+        max_d_pdf = df_trans_pdf['FECHA'].max()
+        if pd.notnull(max_d_pdf):
+            last_reg_date_pdf = max_d_pdf.strftime('%d/%m/%Y')
+
     # Metadata Box
     metadata_data = [
         [Paragraph("<b>Empresa:</b>", style_body), Paragraph(empresa_nombre, style_body)],
         [Paragraph("<b>Proyecto:</b>", style_body), Paragraph(obra_nombre, style_body)],
         [Paragraph("<b>Auditor:</b>", style_body), Paragraph(usuario_actual, style_body)],
+        [Paragraph("<b>Último Registro:</b>", style_body), Paragraph(last_reg_date_pdf, style_body)],
         [Paragraph("<b>Fecha de Reporte:</b>", style_body), Paragraph(datetime.datetime.now().strftime('%d/%m/%Y %I:%M %p'), style_body)]
     ]
     t_meta = Table(metadata_data, colWidths=[120, 384])
@@ -1826,6 +1835,31 @@ if st.session_state.df_maestro is None:
 
 df_app = st.session_state.df_maestro
 
+# Calcular últimos registros para la pantalla
+df_g_only_sb = df_app[df_app['CLASE'] == 'GASTO'] if df_app is not None else pd.DataFrame()
+df_i_only_sb = df_app[df_app['CLASE'] == 'INGRESO'] if df_app is not None else pd.DataFrame()
+df_trans_total_sb = df_app[df_app['CLASE'].isin(['GASTO', 'INGRESO'])] if df_app is not None else pd.DataFrame()
+
+last_date_str = "N/A"
+if not df_trans_total_sb.empty:
+    max_d = df_trans_total_sb['FECHA'].max()
+    if pd.notnull(max_d):
+        last_date_str = max_d.strftime('%d/%m/%Y')
+
+last_gasto_str = "*No hay egresos registrados*"
+if not df_g_only_sb.empty:
+    last_g_row = df_g_only_sb.sort_values(by=['FECHA', 'COSTO TOTAL'], ascending=[True, True]).iloc[-1]
+    g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
+    g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
+    last_gasto_str = f"📅 **{g_fecha}** | 🏢 **{str(last_g_row['PROVEEDOR'])[:15]}** | 💰 **{g_monto}**\n📝 *{str(last_g_row['DESCRIPCION'])[:30]}*"
+
+last_ingreso_str = "*No hay ingresos registrados*"
+if not df_i_only_sb.empty:
+    last_i_row = df_i_only_sb.sort_values(by=['FECHA', 'MONTO BASE USD'], ascending=[True, True]).iloc[-1]
+    i_fecha = last_i_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_i_row['FECHA']) else "N/A"
+    i_monto = f"{last_i_row['MONTO ORIG']:,.2f} {last_i_row['MONEDA']}"
+    last_ingreso_str = f"📅 **{i_fecha}** | 👥 **{str(last_i_row['PROVEEDOR'])[:15]}** | 💰 **{i_monto}**\n📝 *{str(last_i_row['DESCRIPCION'])[:30]}*"
+
 # ENCABEZADO PREMIUM
 st.markdown(f"""
     <div class="premium-header">
@@ -1885,6 +1919,29 @@ def modal_nuevo_registro(clase_registro, admin_global_val):
     
     df_actual = st.session_state.df_maestro
     tasa_bcv = obtener_tasa_bcv()
+
+    # Calcular último registro para mostrar en el modal y evitar duplicados
+    df_g_only = df_actual[df_actual['CLASE'] == 'GASTO'] if df_actual is not None else pd.DataFrame()
+    df_i_only = df_actual[df_actual['CLASE'] == 'INGRESO'] if df_actual is not None else pd.DataFrame()
+    
+    last_g_str = "*No hay egresos registrados*"
+    if not df_g_only.empty:
+        last_g_row = df_g_only.sort_values(by=['FECHA', 'COSTO TOTAL'], ascending=[True, True]).iloc[-1]
+        g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
+        g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
+        last_g_str = f"📅 **{g_fecha}** | 🏢 **{last_g_row['PROVEEDOR']}** | 💰 **{g_monto}** | 📝 *{last_g_row['DESCRIPCION']}*"
+        
+    last_i_str = "*No hay ingresos registrados*"
+    if not df_i_only.empty:
+        last_i_row = df_i_only.sort_values(by=['FECHA', 'MONTO BASE USD'], ascending=[True, True]).iloc[-1]
+        i_fecha = last_i_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_i_row['FECHA']) else "N/A"
+        i_monto = f"{last_i_row['MONTO ORIG']:,.2f} {last_i_row['MONEDA']}"
+        last_i_str = f"📅 **{i_fecha}** | 👥 **{last_i_row['PROVEEDOR']}** | 💰 **{i_monto}** | 📝 *{last_i_row['DESCRIPCION']}*"
+
+    if clase_registro == "GASTO":
+        st.warning(f"⚠️ **Evita duplicados - Último Egreso Guardado:**\n{last_g_str}")
+    else:
+        st.warning(f"⚠️ **Evita duplicados - Último Ingreso Guardado:**\n{last_i_str}")
     
     col1, col2 = st.columns(2)
     
@@ -2078,6 +2135,14 @@ with st.sidebar:
         if st.button("➕ Ingreso", use_container_width=True):
             modal_nuevo_registro("INGRESO", admin_pct)
             
+    st.markdown("---")
+    
+    # 📝 SECCIÓN DE ÚLTIMOS REGISTROS
+    st.markdown("<h3 style='color:#1e3a8a; font-weight:700;'><i class='fa-solid fa-clock-rotate-left'></i> Últimos Registros</h3>", unsafe_allow_html=True)
+    st.info(f"📅 **Último Registro:** {last_date_str}\n\n"
+            f"🔺 **Último Egreso (Gasto):**\n{last_gasto_str}\n\n"
+            f"🔹 **Último Ingreso:**\n{last_ingreso_str}")
+    
     st.markdown("---")
     st.markdown("<h2 style='color:#1e3a8a; font-weight:800;'><i class='fa-solid fa-filter'></i> Filtros Globales</h2>", unsafe_allow_html=True)
 
