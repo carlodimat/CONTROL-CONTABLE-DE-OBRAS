@@ -2245,7 +2245,13 @@ with tab_egresos:
     
     cols_mostrar_gastos = ['FECHA', 'PROVEEDOR', 'DESCRIPCION', 'MONEDA', 'TASA', 'MONTO ORIG', '% ADMIN', 'HONORARIOS', 'COSTO TOTAL', 'ESTADO', 'FORMA PAGO', 'TIPO', 'CAPITULO', 'SUBCAPITULO', 'LINK FACTURA', 'LINK COMPROBANTE']
     
-    df_gastos_sort = df_gastos.sort_values('FECHA', ascending=False) if not df_gastos.empty else pd.DataFrame(columns=cols_mostrar_gastos)
+    if not df_gastos.empty:
+        df_gastos_sort = df_gastos.copy()
+        df_gastos_sort['orig_index'] = df_gastos_sort.index
+        df_gastos_sort = df_gastos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, True])
+        df_gastos_sort = df_gastos_sort.drop(columns=['orig_index'])
+    else:
+        df_gastos_sort = pd.DataFrame(columns=cols_mostrar_gastos)
     if not df_gastos_sort.empty:
         mask_cero_g = (df_gastos_sort['% ADMIN'] == 0) | (df_gastos_sort['% ADMIN'].isna())
         df_gastos_sort.loc[mask_cero_g, '% ADMIN'] = admin_pct
@@ -2446,7 +2452,9 @@ with tab_egresos:
 
         if not df_gastos_sort.empty:
             df_gastos_sort['GROUP_KEY'] = df_gastos_sort.apply(get_group_key, axis=1)
-            df_gastos_sort = df_gastos_sort.sort_values(by=['FECHA', 'GROUP_KEY'], ascending=[False, True])
+            df_gastos_sort['orig_index'] = df_gastos_sort.index
+            df_gastos_sort = df_gastos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, True])
+            df_gastos_sort = df_gastos_sort.drop(columns=['orig_index'])
             def calc_pct(row):
                 total = group_totals.get(row['GROUP_KEY'], float(row['MONTO ORIG']))
                 if total > 0:
@@ -2684,7 +2692,13 @@ with tab_ingresos:
             guardar_cache_local()
             st.rerun()
 
-    df_ingresos_sort = df_ingresos.sort_values('FECHA', ascending=False) if not df_ingresos.empty else pd.DataFrame(columns=cols_mostrar_ing)
+    if not df_ingresos.empty:
+        df_ingresos_sort = df_ingresos.copy()
+        df_ingresos_sort['orig_index'] = df_ingresos_sort.index
+        df_ingresos_sort = df_ingresos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, True])
+        df_ingresos_sort = df_ingresos_sort.drop(columns=['orig_index'])
+    else:
+        df_ingresos_sort = pd.DataFrame(columns=cols_mostrar_ing)
     
     # Obtener formas de pago dinámicas para no generar advertencias en el editor
     fp_ingresos = sorted(list(set([str(fp).strip().upper() for fp in st.session_state.df_maestro['FORMA PAGO'].unique() if str(fp).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
