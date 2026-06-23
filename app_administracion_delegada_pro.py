@@ -1713,6 +1713,7 @@ def agrupar_gastos_divididos(df):
             
         row = {
             'ORIGINAL_INDICES': list(group.index),
+            'max_idx': max(group.index) if not group.empty else 0,
             'FECHA': pd.to_datetime(fecha_str) if fecha_str else pd.NaT,
             'PROVEEDOR': proveedor,
             'DESCRIPCION': desc_limpia,
@@ -1732,7 +1733,7 @@ def agrupar_gastos_divididos(df):
         
     df_grouped = pd.DataFrame(grouped_rows)
     if not df_grouped.empty:
-        df_grouped = df_grouped.sort_values('FECHA', ascending=False)
+        df_grouped = df_grouped.sort_values(by=['FECHA', 'max_idx'], ascending=[False, False])
     return df_grouped
 
 # Cargar caché local al inicio si existe y no hay sesión activa
