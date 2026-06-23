@@ -1838,14 +1838,18 @@ if not df_trans_total_sb.empty:
 
 last_gasto_str = "*No hay egresos registrados*"
 if not df_g_only_sb.empty:
-    last_g_row = df_g_only_sb.sort_values(by=['FECHA', 'COSTO TOTAL'], ascending=[True, True]).iloc[-1]
+    df_g_only_sb = df_g_only_sb.copy()
+    df_g_only_sb['orig_index'] = df_g_only_sb.index
+    last_g_row = df_g_only_sb.sort_values(by=['FECHA', 'orig_index'], ascending=[True, True]).iloc[-1]
     g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
     g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
     last_gasto_str = f"📅 **{g_fecha}** | 🏢 **{str(last_g_row['PROVEEDOR'])[:15]}** | 💰 **{g_monto}**\n📝 *{str(last_g_row['DESCRIPCION'])[:30]}*"
 
 last_ingreso_str = "*No hay ingresos registrados*"
 if not df_i_only_sb.empty:
-    last_i_row = df_i_only_sb.sort_values(by=['FECHA', 'MONTO BASE USD'], ascending=[True, True]).iloc[-1]
+    df_i_only_sb = df_i_only_sb.copy()
+    df_i_only_sb['orig_index'] = df_i_only_sb.index
+    last_i_row = df_i_only_sb.sort_values(by=['FECHA', 'orig_index'], ascending=[True, True]).iloc[-1]
     i_fecha = last_i_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_i_row['FECHA']) else "N/A"
     i_monto = f"{last_i_row['MONTO ORIG']:,.2f} {last_i_row['MONEDA']}"
     last_ingreso_str = f"📅 **{i_fecha}** | 👥 **{str(last_i_row['PROVEEDOR'])[:15]}** | 💰 **{i_monto}**\n📝 *{str(last_i_row['DESCRIPCION'])[:30]}*"
@@ -1916,14 +1920,18 @@ def modal_nuevo_registro(clase_registro, admin_global_val):
     
     last_g_str = "*No hay egresos registrados*"
     if not df_g_only.empty:
-        last_g_row = df_g_only.sort_values(by=['FECHA', 'COSTO TOTAL'], ascending=[True, True]).iloc[-1]
+        df_g_only = df_g_only.copy()
+        df_g_only['orig_index'] = df_g_only.index
+        last_g_row = df_g_only.sort_values(by=['FECHA', 'orig_index'], ascending=[True, True]).iloc[-1]
         g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
         g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
         last_g_str = f"📅 **{g_fecha}** | 🏢 **{last_g_row['PROVEEDOR']}** | 💰 **{g_monto}** | 📝 *{last_g_row['DESCRIPCION']}*"
         
     last_i_str = "*No hay ingresos registrados*"
     if not df_i_only.empty:
-        last_i_row = df_i_only.sort_values(by=['FECHA', 'MONTO BASE USD'], ascending=[True, True]).iloc[-1]
+        df_i_only = df_i_only.copy()
+        df_i_only['orig_index'] = df_i_only.index
+        last_i_row = df_i_only.sort_values(by=['FECHA', 'orig_index'], ascending=[True, True]).iloc[-1]
         i_fecha = last_i_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_i_row['FECHA']) else "N/A"
         i_monto = f"{last_i_row['MONTO ORIG']:,.2f} {last_i_row['MONEDA']}"
         last_i_str = f"📅 **{i_fecha}** | 👥 **{last_i_row['PROVEEDOR']}** | 💰 **{i_monto}** | 📝 *{last_i_row['DESCRIPCION']}*"
@@ -2248,7 +2256,7 @@ with tab_egresos:
     if not df_gastos.empty:
         df_gastos_sort = df_gastos.copy()
         df_gastos_sort['orig_index'] = df_gastos_sort.index
-        df_gastos_sort = df_gastos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, True])
+        df_gastos_sort = df_gastos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, False])
         df_gastos_sort = df_gastos_sort.drop(columns=['orig_index'])
     else:
         df_gastos_sort = pd.DataFrame(columns=cols_mostrar_gastos)
@@ -2453,7 +2461,7 @@ with tab_egresos:
         if not df_gastos_sort.empty:
             df_gastos_sort['GROUP_KEY'] = df_gastos_sort.apply(get_group_key, axis=1)
             df_gastos_sort['orig_index'] = df_gastos_sort.index
-            df_gastos_sort = df_gastos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, True])
+            df_gastos_sort = df_gastos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, False])
             df_gastos_sort = df_gastos_sort.drop(columns=['orig_index'])
             def calc_pct(row):
                 total = group_totals.get(row['GROUP_KEY'], float(row['MONTO ORIG']))
@@ -2695,7 +2703,7 @@ with tab_ingresos:
     if not df_ingresos.empty:
         df_ingresos_sort = df_ingresos.copy()
         df_ingresos_sort['orig_index'] = df_ingresos_sort.index
-        df_ingresos_sort = df_ingresos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, True])
+        df_ingresos_sort = df_ingresos_sort.sort_values(by=['FECHA', 'orig_index'], ascending=[False, False])
         df_ingresos_sort = df_ingresos_sort.drop(columns=['orig_index'])
     else:
         df_ingresos_sort = pd.DataFrame(columns=cols_mostrar_ing)
