@@ -1683,8 +1683,8 @@ def agrupar_gastos_divididos(df):
     else:
         df_copy['FECHA_STR'] = ''
         
-    # Agrupar por fecha, proveedor, descripción limpia, tipo, moneda, tasa, estado, forma pago y subcapítulo
-    group_cols = ['FECHA_STR', 'PROVEEDOR', 'DESCRIPCION_LIMPIA', 'TIPO', 'MONEDA', 'TASA', 'ESTADO', 'FORMA PAGO', 'SUBCAPITULO']
+    # Agrupar por fecha, proveedor, descripción limpia, tipo, moneda, tasa, estado, forma pago (removiendo subcapítulo)
+    group_cols = ['FECHA_STR', 'PROVEEDOR', 'DESCRIPCION_LIMPIA', 'TIPO', 'MONEDA', 'TASA', 'ESTADO', 'FORMA PAGO']
     
     # Rellenar nulos temporalmente para evitar que groupby descarte filas
     for col in group_cols:
@@ -1693,33 +1693,23 @@ def agrupar_gastos_divididos(df):
             
     grouped_rows = []
     for keys, group in df_copy.groupby(group_cols, dropna=False):
-        fecha_str, proveedor, desc_limpia, tipo, moneda, tasa, estado, forma_pago, subcap = keys
+        fecha_str, proveedor, desc_limpia, tipo, moneda, tasa, estado, forma_pago = keys
         
         total_monto_orig = group['MONTO ORIG'].sum()
         total_monto_base = group['MONTO BASE USD'].sum()
         total_honorarios = group['HONORARIOS'].sum()
         total_costo_total = group['COSTO TOTAL'].sum()
         
-        # Determinar capítulo y subcapítulo
+        # Determinar capítulo y subcapítulo (si está dividido, forzar VARIOS (DIVIDIDO))
         caps = sorted(list(set([str(c).strip().upper() for c in group['CAPITULO'].unique() if str(c).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE']])))
         subcaps = sorted(list(set([str(s).strip().upper() for s in group['SUBCAPITULO'].unique() if str(s).strip() not in ['', 'NAN', 'NaN', 'None', 'NONE', '-']])))
         
-        if len(caps) > 1:
+        if len(group) > 1:
             cap_val = "VARIOS (DIVIDIDO)"
-        elif len(caps) == 1:
-            if len(group) > 1:
-                cap_val = f"{caps[0]} (DIVIDIDO)"
-            else:
-                cap_val = caps[0]
-        else:
-            cap_val = ""
-            
-        if len(subcaps) > 1:
             subcap_val = "VARIOS (DIVIDIDO)"
-        elif len(subcaps) == 1:
-            subcap_val = subcaps[0]
         else:
-            subcap_val = ""
+            cap_val = caps[0] if caps else ""
+            subcap_val = subcaps[0] if subcaps else ""
             
         row = {
             'ORIGINAL_INDICES': list(group.index),
