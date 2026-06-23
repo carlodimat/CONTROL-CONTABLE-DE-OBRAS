@@ -437,6 +437,18 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
         textColor=colors.HexColor("#64748b"),
         spaceAfter=25
     )
+
+    style_cover_title = ParagraphStyle(
+        'DocCoverTitle',
+        parent=style_title,
+        alignment=1 # Center
+    )
+    
+    style_cover_subtitle = ParagraphStyle(
+        'DocCoverSubtitle',
+        parent=style_subtitle,
+        alignment=1 # Center
+    )
     
     style_h1 = ParagraphStyle(
         'SectionH1',
@@ -557,8 +569,8 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
     
     # PAGE 1: COVER PAGE
     story.append(Spacer(1, 20))
-    story.append(Paragraph("REPORTE MAESTRO DE CONTROL DE OBRA", style_title))
-    story.append(Paragraph("Sistema de Administración Delegada — DI MATTEO DESIGN-DIMAQUINAS C.A.", style_subtitle))
+    story.append(Paragraph("REPORTE MAESTRO DE CONTROL DE OBRA", style_cover_title))
+    story.append(Paragraph("Sistema de Administración Delegada — DI MATTEO DESIGN-DIMAQUINAS C.A.", style_cover_subtitle))
     
     # Metadata Box
     metadata_data = [
@@ -996,18 +1008,19 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
                 ])
                 
         # Agregar fila de TOTAL
+        avg_tasa_in = (sum_orig_in / sum_usd_in) if sum_usd_in > 0 else 0.0
         in_rows.append([
             Paragraph("<b>TOTAL INGRESOS</b>", style_td_bold),
             Paragraph("", style_td),
             Paragraph("", style_td),
             Paragraph("", style_td),
-            Paragraph("", style_td),
+            Paragraph(f"<b>{avg_tasa_in:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_orig_in:,.2f}</b>", style_td_num_bold),
             Paragraph(f"<b>${sum_usd_in:,.2f}</b>", style_td_num_bold),
             Paragraph("", style_td)
         ])
                 
-        t_ingresos = Table(in_rows, colWidths=[50, 75, 151, 45, 40, 60, 60, 95], repeatRows=1)
+        t_ingresos = Table(in_rows, colWidths=[50, 75, 136, 35, 40, 85, 60, 95], repeatRows=1)
         t_ingresos.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), c_primary),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
