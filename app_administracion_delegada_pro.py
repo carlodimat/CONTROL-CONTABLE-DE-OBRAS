@@ -1777,9 +1777,10 @@ def modal_nuevo_registro(clase_registro, admin_global_val):
             )
             suma_pct_ind = df_distribucion["Porcentaje (%)"].sum()
             if suma_pct_ind != 100.0:
-                st.error(f"⚠️ La suma de los porcentajes es {suma_pct_ind}%. Debe ser exactamente 100%.")
+                falta_pct_ind = 100.0 - suma_pct_ind
+                st.warning(f"⚠️ **Atención:** La suma actual es **{suma_pct_ind:,.2f}%**. Te falta **{falta_pct_ind:,.2f}%** para alcanzar el 100%.")
             else:
-                st.success("✅ La distribución suma 100%.")
+                st.info("🔵 **¡Excelente!** La distribución suma exactamente **100%**. Ya puedes guardar el registro.")
         else:
             col_cap1, col_cap2 = st.columns(2)
             with col_cap1:
@@ -1826,7 +1827,12 @@ def modal_nuevo_registro(clase_registro, admin_global_val):
     else:
         st.success(f"🧮 **Cálculo de Ingreso:** Este ingreso equivale a **💲 {monto_base_usd_calc:,.2f} USD** a la tasa actual.")
             
-    submit_btn = st.button("Guardar Registro", type="primary", use_container_width=True)
+    disable_guardar = False
+    if clase_registro == "GASTO" and distribuir_gasto:
+        if suma_pct_ind != 100.0:
+            disable_guardar = True
+            
+    submit_btn = st.button("Guardar Registro", type="primary", use_container_width=True, disabled=disable_guardar)
     
     if submit_btn:
         # Usar los cálculos dinámicos ya hechos
@@ -2387,9 +2393,10 @@ with tab_distribucion:
         col_btn1, col_btn2 = st.columns([2, 1])
         with col_btn1:
             if suma_pct == 100.0:
-                st.success("✅ La suma de los porcentajes es exactamente 100%. Listo para grabar.")
+                st.info("🔵 **¡Excelente!** La suma de los porcentajes es exactamente **100%**. Listo para grabar.")
             else:
-                st.error(f"⚠️ La suma actual es {suma_pct}%. Debe ser exactamente 100% para poder grabar.")
+                falta_pct = 100.0 - suma_pct
+                st.warning(f"⚠️ **Atención:** La suma actual es **{suma_pct:,.2f}%**. Te falta **{falta_pct:,.2f}%** para alcanzar el 100%.")
                 
         with col_btn2:
             if suma_pct == 100.0 and len(seleccionados_idx) > 0:
