@@ -1838,12 +1838,13 @@ if not df_trans_total_sb.empty:
 
 last_gasto_str = "*No hay egresos registrados*"
 if not df_g_only_sb.empty:
-    df_g_only_sb = df_g_only_sb.copy()
-    df_g_only_sb['orig_index'] = df_g_only_sb.index
-    last_g_row = df_g_only_sb.sort_values(by=['FECHA', 'orig_index'], ascending=[True, True]).iloc[-1]
-    g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
-    g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
-    last_gasto_str = f"📅 **{g_fecha}** | 🏢 **{str(last_g_row['PROVEEDOR'])[:15]}** | 💰 **{g_monto}**\n📝 *{str(last_g_row['DESCRIPCION'])[:30]}*"
+    df_g_grouped = agrupar_gastos_divididos(df_g_only_sb)
+    if not df_g_grouped.empty:
+        df_g_grouped['max_idx'] = df_g_grouped['ORIGINAL_INDICES'].apply(lambda x: max(x) if isinstance(x, list) and x else 0)
+        last_g_row = df_g_grouped.sort_values(by=['FECHA', 'max_idx'], ascending=[True, True]).iloc[-1]
+        g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
+        g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
+        last_gasto_str = f"📅 **{g_fecha}** | 🏢 **{str(last_g_row['PROVEEDOR'])[:15]}** | 💰 **{g_monto}**\n📝 *{str(last_g_row['DESCRIPCION'])[:30]}*"
 
 last_ingreso_str = "*No hay ingresos registrados*"
 if not df_i_only_sb.empty:
@@ -1920,12 +1921,13 @@ def modal_nuevo_registro(clase_registro, admin_global_val):
     
     last_g_str = "*No hay egresos registrados*"
     if not df_g_only.empty:
-        df_g_only = df_g_only.copy()
-        df_g_only['orig_index'] = df_g_only.index
-        last_g_row = df_g_only.sort_values(by=['FECHA', 'orig_index'], ascending=[True, True]).iloc[-1]
-        g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
-        g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
-        last_g_str = f"📅 **{g_fecha}** | 🏢 **{last_g_row['PROVEEDOR']}** | 💰 **{g_monto}** | 📝 *{last_g_row['DESCRIPCION']}*"
+        df_g_grouped = agrupar_gastos_divididos(df_g_only)
+        if not df_g_grouped.empty:
+            df_g_grouped['max_idx'] = df_g_grouped['ORIGINAL_INDICES'].apply(lambda x: max(x) if isinstance(x, list) and x else 0)
+            last_g_row = df_g_grouped.sort_values(by=['FECHA', 'max_idx'], ascending=[True, True]).iloc[-1]
+            g_fecha = last_g_row['FECHA'].strftime('%d/%m/%Y') if pd.notnull(last_g_row['FECHA']) else "N/A"
+            g_monto = f"{last_g_row['MONTO ORIG']:,.2f} {last_g_row['MONEDA']}"
+            last_g_str = f"📅 **{g_fecha}** | 🏢 **{last_g_row['PROVEEDOR']}** | 💰 **{g_monto}** | 📝 *{last_g_row['DESCRIPCION']}*"
         
     last_i_str = "*No hay ingresos registrados*"
     if not df_i_only.empty:
