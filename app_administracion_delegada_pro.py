@@ -606,16 +606,18 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
         story.append(Spacer(1, 10))
         story.append(img_flow)
 
+    df_graficos_pdf = separar_administracion_delegada(df_gastos_base)
+
     # 2. Gráfico por Tipo de Gasto (Donut)
     if opciones_pdf.get("tipo_gasto", True):
-        img_tipo = generar_grafico_tipo_gasto(df_gastos_base)
+        img_tipo = generar_grafico_tipo_gasto(df_graficos_pdf)
         if img_tipo:
             agregar_pagina_con_orientacion("landscape")
             story.append(Paragraph("Egresos por Tipo de Gasto", style_h1))
             story.append(Spacer(1, 10))
             story.append(img_tipo)
             
-            df_tipo = df_gastos_base.groupby('TIPO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
+            df_tipo = df_graficos_pdf.groupby('TIPO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
             total_tipo = df_tipo['COSTO TOTAL'].sum()
             df_tipo['% DEL TOTAL'] = (df_tipo['COSTO TOTAL'] / total_tipo * 100) if total_tipo > 0 else 0
             df_tipo.loc['Total'] = ['TOTAL', total_tipo, 100.0]
@@ -626,7 +628,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
 
     # Calculate budgets grouped for both PROGRESS bar chart and BUDGET ESTIMATES table
     if not df_gastos_base.empty:
-        df_pres = df_gastos_base.copy()
+        df_pres = separar_administracion_delegada(df_gastos_base)
         df_pres['CAPITULO'] = df_pres['CAPITULO'].astype(str).str.strip().str.upper().replace('', 'SIN CAPÍTULO')
         presupuestos_grouped = df_pres.groupby(['CAPITULO']).agg({'COSTO TOTAL': 'sum'}).reset_index().rename(columns={'COSTO TOTAL': 'MONTO EJECUTADO'})
     else:
@@ -662,14 +664,14 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
 
     # 4. Gráfico Egresos por Capítulo Stacked
     if opciones_pdf.get("egresos_cap", True):
-        img_cap_stacked = generar_grafico_cap_stacked_pdf(df_gastos_base)
+        img_cap_stacked = generar_grafico_cap_stacked_pdf(df_graficos_pdf)
         if img_cap_stacked:
             agregar_pagina_con_orientacion("landscape")
             story.append(Paragraph("Egresos por Capítulo (por Tipo de Gasto)", style_h1))
             story.append(Spacer(1, 10))
             story.append(img_cap_stacked)
             
-            df_cap = df_gastos_base.groupby('CAPITULO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
+            df_cap = df_graficos_pdf.groupby('CAPITULO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
             total_cap = df_cap['COSTO TOTAL'].sum()
             df_cap['% DEL TOTAL'] = (df_cap['COSTO TOTAL'] / total_cap * 100) if total_cap > 0 else 0
             df_cap.loc['Total'] = ['TOTAL', total_cap, 100.0]
@@ -680,14 +682,14 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
 
     # 5. Gráfico Top 15 Sub-Capítulos Stacked
     if opciones_pdf.get("subcap", True):
-        img_subcap_stacked = generar_grafico_subcap_stacked_pdf(df_gastos_base)
+        img_subcap_stacked = generar_grafico_subcap_stacked_pdf(df_graficos_pdf)
         if img_subcap_stacked:
             agregar_pagina_con_orientacion("landscape")
             story.append(Paragraph("Distribución por Sub-Capítulo", style_h1))
             story.append(Spacer(1, 10))
             story.append(img_subcap_stacked)
             
-            df_sub_full = df_gastos_base.groupby('SUBCAPITULO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
+            df_sub_full = df_graficos_pdf.groupby('SUBCAPITULO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
             total_sub = df_sub_full['COSTO TOTAL'].sum()
             df_sub = df_sub_full.head(15).copy()
             df_sub['% DEL TOTAL'] = (df_sub['COSTO TOTAL'] / total_sub * 100) if total_sub > 0 else 0
@@ -699,7 +701,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
 
     # 6. Gráfico Mapa de Árbol (Treemap)
     if opciones_pdf.get("treemap", True):
-        img_treemap = generar_grafico_treemap_pdf(df_gastos_base)
+        img_treemap = generar_grafico_treemap_pdf(df_graficos_pdf)
         if img_treemap:
             agregar_pagina_con_orientacion("landscape")
             story.append(Paragraph("Relación Jerárquica: Mapa de Árbol", style_h1))
@@ -708,7 +710,7 @@ def generar_pdf_maestro(df_app, empresa_nombre, obra_nombre, usuario_actual, adm
 
     # 7. Gráfico Estructura Concéntrica (Sunburst)
     if opciones_pdf.get("sunburst", True):
-        img_sunburst = generar_grafico_sunburst_pdf(df_gastos_base)
+        img_sunburst = generar_grafico_sunburst_pdf(df_graficos_pdf)
         if img_sunburst:
             agregar_pagina_con_orientacion("landscape")
             story.append(Paragraph("Estructura Concéntrica", style_h1))
@@ -1369,6 +1371,28 @@ def aplicar_buscador_universal(df, query):
     # Filtrar filas que contengan el término en cualquier columna
     mask = df.astype(str).apply(lambda x: x.str.contains(query, case=False, na=False)).any(axis=1)
     return df[mask]
+
+def separar_administracion_delegada(df_gastos):
+    if df_gastos.empty:
+        return df_gastos
+    df_base = df_gastos.copy()
+    df_base['COSTO TOTAL'] = df_base['MONTO BASE USD']
+    
+    df_admin = df_gastos[df_gastos['HONORARIOS'] > 0].copy()
+    if not df_admin.empty:
+        df_admin['COSTO TOTAL'] = df_admin['HONORARIOS']
+        df_admin['TIPO'] = 'ADMINISTRACIÓN DELEGADA'
+        # Mantenemos el CAPÍTULO original para que el costo sume correctamente a la jerarquía del capítulo
+        # Asignamos el SUBCAPÍTULO para que se desglose dentro del Treemap / Sunburst
+        df_admin['SUBCAPITULO'] = 'ADMINISTRACIÓN DELEGADA'
+        df_admin['PROVEEDOR'] = 'ADMINISTRADOR DELEGADO'
+        if 'MONTO ORIG' in df_admin.columns:
+            df_admin['MONTO ORIG'] = 0.0
+        if 'MONTO BASE USD' in df_admin.columns:
+            df_admin['MONTO BASE USD'] = 0.0
+            
+        return pd.concat([df_base, df_admin], ignore_index=True)
+    return df_base
 
 def guardar_cambios_maestro(df_original_filtrado, df_editado_filtrado):
     df_maestro = st.session_state.df_maestro.copy()
@@ -2855,7 +2879,7 @@ with tab_presupuestos:
     """, unsafe_allow_html=True)
 
     # 1. Agrupar gastos ejecutados por CAPITULO
-    df_pres = df_gastos_base.copy()
+    df_pres = separar_administracion_delegada(df_gastos_base)
     if not df_pres.empty:
         df_pres['CAPITULO'] = df_pres['CAPITULO'].astype(str).str.strip().str.upper().replace('', 'SIN CAPÍTULO')
         presupuestos_grouped = df_pres.groupby(['CAPITULO']).agg({
@@ -3217,6 +3241,56 @@ with tab_graficos:
     st.subheader("📊 Distribución y Evolución Detallada")
     
     if not df_gastos.empty:
+        df_graficos = separar_administracion_delegada(df_gastos)
+        
+        # Gráficos detallados ordenados uno debajo de otro
+        # 1. Gráfico de Evolución Mensual
+        graf_mes = df_graficos.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
+        fig_mes = px.bar(graf_mes, x='MES_AÑO', y='COSTO TOTAL', 
+                         title="Evolución de Gastos por Período",
+                         color_discrete_sequence=['#3b82f6'])
+        fig_mes.update_layout(margin=dict(t=40, b=20, l=40, r=20))
+        st.plotly_chart(fig_mes, use_container_width=True)
+        
+        # 2. Gráfico Top Proveedores (Barras Horizontales)
+        graf_prov = df_graficos.groupby('PROVEEDOR')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=True).tail(10)
+        fig_prov = px.bar(graf_prov, x='COSTO TOTAL', y='PROVEEDOR', orientation='h',
+                          title="Top 10 Proveedores (Costo Total)",
+                          color='COSTO TOTAL', color_continuous_scale='Blues')
+        fig_prov.update_layout(margin=dict(t=40, b=20, l=40, r=20), coloraxis_showscale=False)
+        st.plotly_chart(fig_prov, use_container_width=True)
+        
+        # 3. Gráfico de Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
+        graf_cap = df_graficos.groupby(['CAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
+        fig_cap = px.bar(graf_cap, x='CAPITULO', y='COSTO TOTAL', color='TIPO',
+                         title="Distribución por Capítulo (Composición por Tipo de Gasto)",
+                         labels={'CAPITULO': 'Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
+                         color_discrete_sequence=px.colors.qualitative.Plotly)
+        fig_cap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
+        fig_cap.update_xaxes(categoryorder='total descending')
+        st.plotly_chart(fig_cap, use_container_width=True)
+        
+        # 4. Gráfico de Sub-Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
+        graf_subcap = df_graficos.groupby(['SUBCAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
+        fig_subcap = px.bar(graf_subcap, x='SUBCAPITULO', y='COSTO TOTAL', color='TIPO',
+                            title="Distribución por Sub-Capítulo (Composición por Tipo de Gasto)",
+                            labels={'SUBCAPITULO': 'Sub-Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
+                            color_discrete_sequence=px.colors.qualitative.Safe)
+        fig_subcap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
+        fig_subcap.update_xaxes(categoryorder='total descending')
+        st.plotly_chart(fig_subcap, use_container_width=True)
+        
+        # 5. Gráfico por Tipo de Gasto (Donut)
+        graf_tipo = df_graficos.groupby('TIPO')['COSTO TOTAL'].sum().reset_index()
+        fig_tipo = px.pie(graf_tipo, values='COSTO TOTAL', names='TIPO', hole=0.4, 
+                          title="Distribución Total por Tipo de Gasto",
+                          color_discrete_sequence=px.colors.sequential.Plotly3)
+        fig_tipo.update_layout(margin=dict(t=40, b=0, l=0, r=0))
+        st.plotly_chart(fig_tipo, use_container_width=True)
+        
+        st.markdown("---")
+        st.subheader("🕸️ Análisis Jerárquico")
+        
         # Selector de jerarquía global
         col_sel1, col_sel2 = st.columns([1.5, 2.5])
         with col_sel1:
@@ -3230,52 +3304,7 @@ with tab_graficos:
             else:
                 ruta_jerarquia = ['SUBCAPITULO', 'CAPITULO']
                 
-            graf_hier = df_gastos[df_gastos['COSTO TOTAL'] > 0].copy()
-            
-        # Gráficos detallados ordenados uno debajo de otro
-        # 1. Gráfico de Evolución Mensual
-        graf_mes = df_gastos.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
-        fig_mes = px.bar(graf_mes, x='MES_AÑO', y='COSTO TOTAL', 
-                         title="Evolución de Gastos por Período",
-                         color_discrete_sequence=['#3b82f6'])
-        fig_mes.update_layout(margin=dict(t=40, b=20, l=40, r=20))
-        st.plotly_chart(fig_mes, use_container_width=True)
-        
-        # 2. Gráfico Top Proveedores (Barras Horizontales)
-        graf_prov = df_gastos.groupby('PROVEEDOR')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=True).tail(10)
-        fig_prov = px.bar(graf_prov, x='COSTO TOTAL', y='PROVEEDOR', orientation='h',
-                          title="Top 10 Proveedores (Costo Total)",
-                          color='COSTO TOTAL', color_continuous_scale='Blues')
-        fig_prov.update_layout(margin=dict(t=40, b=20, l=40, r=20), coloraxis_showscale=False)
-        st.plotly_chart(fig_prov, use_container_width=True)
-        
-        # 3. Gráfico de Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
-        graf_cap = df_gastos.groupby(['CAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
-        fig_cap = px.bar(graf_cap, x='CAPITULO', y='COSTO TOTAL', color='TIPO',
-                         title="Distribución por Capítulo (Composición por Tipo de Gasto)",
-                         labels={'CAPITULO': 'Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
-                         color_discrete_sequence=px.colors.qualitative.Plotly)
-        fig_cap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
-        fig_cap.update_xaxes(categoryorder='total descending')
-        st.plotly_chart(fig_cap, use_container_width=True)
-        
-        # 4. Gráfico de Sub-Capítulos - Barra Apilada (Stacked) por Tipo de Gasto
-        graf_subcap = df_gastos.groupby(['SUBCAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index()
-        fig_subcap = px.bar(graf_subcap, x='SUBCAPITULO', y='COSTO TOTAL', color='TIPO',
-                            title="Distribución por Sub-Capítulo (Composición por Tipo de Gasto)",
-                            labels={'SUBCAPITULO': 'Sub-Capítulo', 'COSTO TOTAL': 'Costo Total (USD)', 'TIPO': 'Tipo de Gasto'},
-                            color_discrete_sequence=px.colors.qualitative.Safe)
-        fig_subcap.update_layout(margin=dict(t=45, b=20, l=40, r=20), barmode='stack', hovermode="x unified")
-        fig_subcap.update_xaxes(categoryorder='total descending')
-        st.plotly_chart(fig_subcap, use_container_width=True)
-        
-        # 5. Gráfico por Tipo de Gasto (Donut)
-        graf_tipo = df_gastos.groupby('TIPO')['COSTO TOTAL'].sum().reset_index()
-        fig_tipo = px.pie(graf_tipo, values='COSTO TOTAL', names='TIPO', hole=0.4, 
-                          title="Distribución Total por Tipo de Gasto",
-                          color_discrete_sequence=px.colors.sequential.Plotly3)
-        fig_tipo.update_layout(margin=dict(t=40, b=0, l=0, r=0))
-        st.plotly_chart(fig_tipo, use_container_width=True)
+        graf_hier = df_graficos[df_graficos['COSTO TOTAL'] > 0].copy()
         
         # 6. Estructura Concéntrica (Sunburst)
         if not graf_hier.empty:
@@ -3295,9 +3324,9 @@ with tab_graficos:
             fig_sun.update_layout(margin=dict(t=50, b=20, l=20, r=20))
             st.plotly_chart(fig_sun, use_container_width=True)
             
-        # 4. Mapa de Árbol (Treemap) - de ancho completo abajo de las columnas
-        st.markdown("---")
-        st.subheader("🌳 Relación Jerárquica del Presupuesto (Mapa de Árbol)")
+        # 7. Mapa de Árbol (Treemap) - de ancho completo abajo de las columnas
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 🌳 Relación Jerárquica del Presupuesto (Mapa de Árbol)")
         if not graf_hier.empty:
             fig_tree = px.treemap(
                 graf_hier, 
@@ -3327,33 +3356,35 @@ with tab_datos_graficos:
     st.info("Aquí puedes ver el detalle numérico exacto de cada gráfico mostrado en la pestaña anterior para un análisis profundo o para exportar los datos a CSV.")
     
     if not df_gastos.empty:
+        df_graficos_dt = separar_administracion_delegada(df_gastos)
+        
         col_d1, col_d2 = st.columns(2)
         
         with col_d1:
             st.markdown("#### Evolución Mensual")
-            df_mes = df_gastos.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
+            df_mes = df_graficos_dt.groupby('MES_AÑO')['COSTO TOTAL'].sum().reset_index()
             df_mes.loc['Total'] = ['TOTAL', df_mes['COSTO TOTAL'].sum()]
             st.dataframe(df_mes.style.format({'COSTO TOTAL': formatear_usd}), use_container_width=True)
             
             st.markdown("#### Top 10 Proveedores")
-            df_prov = df_gastos.groupby('PROVEEDOR')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False).head(10)
+            df_prov = df_graficos_dt.groupby('PROVEEDOR')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False).head(10)
             df_prov.loc['Total'] = ['TOTAL', df_prov['COSTO TOTAL'].sum()]
             st.dataframe(df_prov.style.format({'COSTO TOTAL': formatear_usd}), use_container_width=True)
             
         with col_d2:
             st.markdown("#### Distribución por Capítulo")
-            df_cap = df_gastos.groupby('CAPITULO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
+            df_cap = df_graficos_dt.groupby('CAPITULO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
             df_cap.loc['Total'] = ['TOTAL', df_cap['COSTO TOTAL'].sum()]
             st.dataframe(df_cap.style.format({'COSTO TOTAL': formatear_usd}), use_container_width=True)
             
             st.markdown("#### Distribución por Tipo de Gasto")
-            df_tipo = df_gastos.groupby('TIPO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
+            df_tipo = df_graficos_dt.groupby('TIPO')['COSTO TOTAL'].sum().reset_index().sort_values('COSTO TOTAL', ascending=False)
             df_tipo.loc['Total'] = ['TOTAL', df_tipo['COSTO TOTAL'].sum()]
             st.dataframe(df_tipo.style.format({'COSTO TOTAL': formatear_usd}), use_container_width=True)
             
         st.markdown("---")
         st.markdown("#### Detalle Completo: Capítulo, Sub-Capítulo y Tipo de Gasto")
-        df_det = df_gastos.groupby(['CAPITULO', 'SUBCAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index().sort_values(['CAPITULO', 'COSTO TOTAL'], ascending=[True, False])
+        df_det = df_graficos_dt.groupby(['CAPITULO', 'SUBCAPITULO', 'TIPO'])['COSTO TOTAL'].sum().reset_index().sort_values(['CAPITULO', 'COSTO TOTAL'], ascending=[True, False])
         df_det.loc['Total'] = ['TOTAL', '', '', df_det['COSTO TOTAL'].sum()]
         st.dataframe(df_det.style.format({'COSTO TOTAL': formatear_usd}), use_container_width=True)
     else:
